@@ -1,0 +1,97 @@
+# ==============================================================================
+# GitHub Actions - Terraform Plan
+# ==============================================================================
+# Runs terraform plan to preview infrastructure changes.
+# MANUAL TRIGGER ONLY - for learning and controlled deployments.
+# ==============================================================================
+
+name: Terraform Plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (dev/test/prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  TF_VERSION: '1.6.0'
+
+jobs:
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Initialize Terraform
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -backend-config="bucket=fastapi-eks-terraform-state-${{ secrets.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=eks/${{ github.event.inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=fastapi-eks-terraform-locks"
+
+      # Validate Terraform configuration
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      # Run Terraform Plan
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file=environments/${{ github.event.inputs.environment }}.tfvars \
+            -no-color \
+            -out=tfplan
+
+      # Output summary
+      - name: Output Summary
+        run: |
+          echo "### 📋 Terraform Plan Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Review the plan output above. If satisfied, run **Terraform Apply** workflow." >> $GITHUB_STEP_SUMMARY
+
+      # Upload plan for apply workflow
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.event.inputs.environment }}
+          path: infrastructure/terraform/tfplan
+          retention-days: 7

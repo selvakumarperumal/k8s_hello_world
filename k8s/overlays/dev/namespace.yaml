@@ -1,0 +1,52 @@
+# ==============================================================================
+# Namespace Configuration - Dev
+# ==============================================================================
+#
+# WHAT IS A NAMESPACE?
+# --------------------
+# A namespace is a logical partition within a Kubernetes cluster.
+# Think of it like a folder that groups related resources together.
+#
+# WHY USE NAMESPACES?
+# -------------------
+# 1. Isolation      - Separate environments (dev/test/prod)
+# 2. Organization   - Group related resources
+# 3. Access Control - Apply RBAC policies per namespace
+# 4. Resource Quotas - Limit resources per namespace
+#
+# DEFAULT NAMESPACES:
+# -------------------
+# | Namespace      | Purpose                           |
+# |----------------|-----------------------------------|
+# | default        | Resources with no namespace       |
+# | kube-system    | Kubernetes system components      |
+# | kube-public    | Publicly accessible resources     |
+# | kube-node-lease| Node heartbeat data               |
+#
+# COMMANDS:
+# ---------
+# # List namespaces:
+# kubectl get namespaces
+#
+# # Create namespace:
+# kubectl create namespace fastapi-dev
+#
+# # Switch default namespace:
+# kubectl config set-context --current --namespace=fastapi-dev
+#
+# # List resources in a namespace:
+# kubectl get all -n fastapi-dev
+#
+# ==============================================================================
+
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  # Namespace name - must be unique in the cluster
+  name: fastapi-dev
+  
+  # Labels for the namespace
+  labels:
+    environment: dev                     # Environment identifier
+    app.kubernetes.io/name: fastapi-hello

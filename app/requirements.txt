@@ -1,0 +1,9 @@
+# FastAPI Hello World - Python Dependencies
+# ==========================================
+
+# FastAPI - Modern, fast web framework for building APIs
+fastapi>=0.104.0
+
+# Uvicorn - ASGI server for running FastAPI
+# [standard] includes uvloop, httptools, websockets for better performance
+uvicorn[standard]>=0.24.0

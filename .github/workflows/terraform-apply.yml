@@ -1,0 +1,109 @@
+# ==============================================================================
+# GitHub Actions - Terraform Apply
+# ==============================================================================
+# Applies Terraform changes to create/update infrastructure.
+# MANUAL TRIGGER ONLY with confirmation required.
+# ==============================================================================
+
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (dev/test/prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+      confirm:
+        description: 'Type "apply" to confirm'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  TF_VERSION: '1.6.0'
+
+jobs:
+  validate:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: ${{ github.event.inputs.confirm != 'apply' }}
+        run: |
+          echo "❌ Confirmation failed. You must type 'apply' to confirm."
+          exit 1
+
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: validate
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Initialize Terraform
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=fastapi-eks-terraform-state-${{ secrets.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=eks/${{ github.event.inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=fastapi-eks-terraform-locks"
+
+      # Apply Terraform changes
+      - name: Terraform Apply
+        run: |
+          terraform apply \
+            -var-file=environments/${{ github.event.inputs.environment }}.tfvars \
+            -auto-approve
+
+      # Get outputs
+      - name: Get Outputs
+        id: outputs
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "ecr_repository_url=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "update_kubeconfig_command=$(terraform output -raw update_kubeconfig_command)" >> $GITHUB_OUTPUT
+
+      # Output summary
+      - name: Output Summary
+        run: |
+          echo "### ✅ Terraform Apply Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster Name:** ${{ steps.outputs.outputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ECR Repository:** ${{ steps.outputs.outputs.ecr_repository_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.outputs.outputs.update_kubeconfig_command }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

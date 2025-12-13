@@ -1,0 +1,148 @@
+# ==============================================================================
+# Kubernetes Deployment - FastAPI Hello World
+# ==============================================================================
+#
+# WHAT IS A DEPLOYMENT?
+# ---------------------
+# A Deployment provides declarative updates for Pods and ReplicaSets.
+# You describe the desired state, and Kubernetes changes the actual
+# state to match. It manages:
+#   - Creating/updating pods
+#   - Rolling updates (zero-downtime deployments)
+#   - Rollbacks to previous versions
+#   - Scaling (changing replica count)
+#
+# MANIFEST STRUCTURE:
+# -------------------
+# Every Kubernetes manifest has 4 required sections:
+#   1. apiVersion - Which API version to use
+#   2. kind       - What resource type to create
+#   3. metadata   - Resource identification (name, labels, annotations)
+#   4. spec       - The desired state (the actual configuration)
+#
+# ==============================================================================
+
+# API version determines which Kubernetes API group to use
+# apps/v1 is the stable API for Deployments, ReplicaSets, StatefulSets
+apiVersion: apps/v1
+
+# The resource type - tells Kubernetes what to create
+kind: Deployment
+
+# Metadata section - identifies and labels the resource
+metadata:
+  # The deployment's name - must be unique within a namespace
+  # This is how you reference it: kubectl get deployment fastapi-deployment
+  name: fastapi-deployment
+  
+  # Labels are key-value pairs for organizing and selecting resources
+  # These labels describe the deployment itself
+  labels:
+    app: fastapi        # Application name
+    version: v1         # Version identifier
+
+# Spec section - defines the desired state
+spec:
+  # How many pod replicas should be running at all times
+  # Kubernetes ensures this many pods are always available
+  replicas: 2
+  
+  # Selector tells the deployment which pods it manages
+  # IMPORTANT: This must match the pod template labels below!
+  selector:
+    matchLabels:
+      app: fastapi      # Manage pods with label "app: fastapi"
+
+  # Pod template - defines what pods should look like
+  template:
+    # Metadata for the pods (not the deployment)
+    metadata:
+      # These labels MUST match the selector above!
+      labels:
+        app: fastapi
+        version: v1
+    
+    # Pod specification
+    spec:
+      # List of containers in this pod
+      # Most pods have one container, but you can have multiple
+      containers:
+        - name: fastapi                    # Container name
+          
+          # Docker image to use
+          # Will be overridden by Kustomize with ECR image URL
+          image: fastapi-hello:latest
+          
+          # Ports the container exposes
+          # This is informational - doesn't actually publish the port
+          ports:
+            - name: http                   # Port name (referenced elsewhere)
+              containerPort: 8000          # FastAPI runs on port 8000
+              protocol: TCP                # TCP/UDP (TCP is default)
+
+          # -----------------------------------------------------------------
+          # RESOURCE MANAGEMENT
+          # -----------------------------------------------------------------
+          # Requests: Guaranteed minimum resources
+          # Limits: Maximum resources (container is killed if exceeded)
+          #
+          # CPU units: 1 = 1 vCPU, 100m = 0.1 vCPU (m = millicores)
+          # Memory units: Mi = Mebibytes, Gi = Gibibytes
+          resources:
+            requests:                      # Minimum guaranteed
+              cpu: "100m"                  # 0.1 CPU cores
+              memory: "128Mi"              # 128 MB RAM
+            limits:                        # Maximum allowed
+              cpu: "500m"                  # 0.5 CPU cores
+              memory: "256Mi"              # 256 MB RAM
+
+          # -----------------------------------------------------------------
+          # LIVENESS PROBE
+          # -----------------------------------------------------------------
+          # "Is this container alive?"
+          # If this fails, Kubernetes RESTARTS the container
+          # Use this to catch deadlocks, infinite loops, etc.
+          livenessProbe:
+            httpGet:                       # Make HTTP GET request
+              path: /health                # URL path to check
+              port: 8000                   # Port to check
+            initialDelaySeconds: 10        # Wait 10s before first check
+            periodSeconds: 10              # Check every 10 seconds
+            timeoutSeconds: 5              # Request timeout
+            failureThreshold: 3            # Restart after 3 failures
+
+          # -----------------------------------------------------------------
+          # READINESS PROBE
+          # -----------------------------------------------------------------
+          # "Is this container ready to receive traffic?"
+          # If this fails, the pod is REMOVED from service endpoints
+          # Use this for startup checks, dependency checks, etc.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5         # Wait 5s before first check
+            periodSeconds: 5               # Check every 5 seconds
+            timeoutSeconds: 3              # Request timeout
+            failureThreshold: 3            # Mark unready after 3 failures
+
+          # -----------------------------------------------------------------
+          # ENVIRONMENT VARIABLES
+          # -----------------------------------------------------------------
+          # Pass configuration to the container
+          env:
+            - name: ENVIRONMENT            # Variable name
+              value: "development"         # Variable value
+
+      # Restart policy (Always, OnFailure, Never)
+      # Always = restart container on any exit
+      restartPolicy: Always
+
+      # -----------------------------------------------------------------
+      # SECURITY CONTEXT
+      # -----------------------------------------------------------------
+      # Security settings for the pod
+      securityContext:
+        runAsNonRoot: true                 # Must run as non-root user
+        runAsUser: 1000                    # Run as user ID 1000
+        fsGroup: 1000                      # File system group ID

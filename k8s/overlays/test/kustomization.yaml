@@ -1,0 +1,60 @@
+# ==============================================================================
+# Kustomize Test Overlay
+# ==============================================================================
+#
+# TEST ENVIRONMENT STRATEGY:
+# --------------------------
+# - Medium resource allocation
+# - 2 replicas for basic redundancy
+# - ON_DEMAND instances (more stable than SPOT)
+# - 7-day log retention
+# - Used for QA and integration testing
+#
+# ==============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+
+# Namespace for test environment
+namespace: fastapi-test
+
+# Name prefix for all resources
+namePrefix: test-
+
+# Common labels
+commonLabels:
+  environment: test
+
+# Image transformation - REPLACE ACCOUNT_ID with your AWS account ID
+images:
+  - name: fastapi-hello
+    newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-test
+    newTag: latest
+
+# Patches for test-specific configuration
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fastapi-deployment
+      spec:
+        replicas: 2                        # 2 replicas for test
+        template:
+          spec:
+            containers:
+              - name: fastapi
+                env:
+                  - name: ENVIRONMENT
+                    value: "test"
+                resources:
+                  requests:
+                    cpu: "100m"            # Standard CPU request
+                    memory: "128Mi"        # Standard memory request
+                  limits:
+                    cpu: "500m"            # Standard CPU limit
+                    memory: "256Mi"        # Standard memory limit

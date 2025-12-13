@@ -1,0 +1,13 @@
+# ==============================================================================
+# Namespace Configuration - Test
+# ==============================================================================
+# Test environment namespace for QA and integration testing.
+# ==============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fastapi-test
+  labels:
+    environment: test
+    app.kubernetes.io/name: fastapi-hello

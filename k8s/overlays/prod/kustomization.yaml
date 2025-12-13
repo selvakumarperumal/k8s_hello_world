@@ -1,0 +1,70 @@
+# ==============================================================================
+# Kustomize Prod Overlay
+# ==============================================================================
+#
+# PRODUCTION ENVIRONMENT STRATEGY:
+# --------------------------------
+# - Higher resource allocation for performance
+# - 3+ replicas for high availability
+# - ON_DEMAND instances (never use SPOT for production!)
+# - 30-day log retention
+# - Stricter security settings
+#
+# PRODUCTION BEST PRACTICES:
+# --------------------------
+# 1. Always use specific image tags (never :latest)
+# 2. Set appropriate resource limits
+# 3. Use Pod Disruption Budgets
+# 4. Enable horizontal pod autoscaling
+# 5. Use network policies
+# 6. Monitor with Prometheus/CloudWatch
+#
+# ==============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+
+# Namespace for prod environment
+namespace: fastapi-prod
+
+# Name prefix for all resources
+namePrefix: prod-
+
+# Common labels
+commonLabels:
+  environment: prod
+
+# Image transformation - REPLACE ACCOUNT_ID with your AWS account ID
+# IMPORTANT: In production, always use a specific version tag!
+images:
+  - name: fastapi-hello
+    newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-prod
+    newTag: latest  # TODO: Replace with specific version like v1.0.0
+
+# Patches for prod-specific configuration
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fastapi-deployment
+      spec:
+        replicas: 3                        # 3 replicas for high availability
+        template:
+          spec:
+            containers:
+              - name: fastapi
+                env:
+                  - name: ENVIRONMENT
+                    value: "production"
+                resources:
+                  requests:
+                    cpu: "200m"            # Higher CPU request
+                    memory: "256Mi"        # Higher memory request
+                  limits:
+                    cpu: "1000m"           # 1 full CPU core limit
+                    memory: "512Mi"        # Higher memory limit

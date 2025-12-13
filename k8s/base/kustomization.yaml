@@ -1,0 +1,65 @@
+# ==============================================================================
+# Kustomize Base Configuration
+# ==============================================================================
+#
+# WHAT IS KUSTOMIZE?
+# ------------------
+# Kustomize is a template-free way to customize Kubernetes configs.
+# It uses a layered approach:
+#   - Base: Common configuration shared across environments
+#   - Overlays: Environment-specific customizations
+#
+# WHY USE KUSTOMIZE?
+# ------------------
+# ❌ Without Kustomize: Copy manifests for each environment
+#    - deployment-dev.yaml, deployment-test.yaml, deployment-prod.yaml
+#    - Easy to make mistakes, hard to maintain
+#
+# ✅ With Kustomize: One base, multiple overlays
+#    - base/deployment.yaml (shared)
+#    - overlays/dev/kustomization.yaml (patches for dev)
+#    - overlays/prod/kustomization.yaml (patches for prod)
+#
+# DIRECTORY STRUCTURE:
+# --------------------
+# k8s/
+# ├── base/                    <- You are here
+# │   ├── deployment.yaml
+# │   ├── service.yaml
+# │   └── kustomization.yaml   <- This file
+# └── overlays/
+#     ├── dev/                 <- Dev environment patches
+#     ├── test/                <- Test environment patches
+#     └── prod/                <- Prod environment patches
+#
+# HOW TO USE:
+# -----------
+# # Preview what will be generated:
+# kubectl kustomize k8s/base/
+#
+# # Apply the base configuration:
+# kubectl apply -k k8s/base/
+#
+# ==============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# -----------------------------------------------------------------
+# COMMON LABELS
+# -----------------------------------------------------------------
+# These labels are added to ALL resources in this kustomization
+# Useful for organizing and querying resources
+# Example: kubectl get all -l app.kubernetes.io/name=fastapi-hello
+commonLabels:
+  app.kubernetes.io/name: fastapi-hello
+  app.kubernetes.io/managed-by: kustomize
+
+# -----------------------------------------------------------------
+# RESOURCES
+# -----------------------------------------------------------------
+# List of Kubernetes manifests to include in this kustomization
+# Each file's resources will be processed and combined
+resources:
+  - deployment.yaml    # FastAPI Deployment
+  - service.yaml       # FastAPI Service
