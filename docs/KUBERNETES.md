@@ -1211,6 +1211,763 @@ kubectl create namespace prod
 
 ---
 
+## Kubernetes Control Plane & Data Plane Components
+
+### Overview
+
+Kubernetes architecture is divided into two main planes:
+- **Control Plane**: The brain of the cluster that makes global decisions
+- **Data Plane**: Worker nodes that run your actual applications
+
+```mermaid
+graph TB
+    subgraph "Control Plane (Master Node)"
+        API[API Server]
+        ETCD[(etcd)]
+        SCHED[Scheduler]
+        CM[Controller Manager]
+        CCM[Cloud Controller Manager]
+    end
+    
+    subgraph "Data Plane (Worker Node 1)"
+        KUBELET1[Kubelet]
+        PROXY1[Kube-proxy]
+        RUNTIME1[Container Runtime]
+        POD1[Pods]
+    end
+    
+    subgraph "Data Plane (Worker Node 2)"
+        KUBELET2[Kubelet]
+        PROXY2[Kube-proxy]
+        RUNTIME2[Container Runtime]
+        POD2[Pods]
+    end
+    
+    API --> ETCD
+    API --> SCHED
+    API --> CM
+    API --> CCM
+    API -.-> KUBELET1
+    API -.-> KUBELET2
+    KUBELET1 --> RUNTIME1
+    KUBELET2 --> RUNTIME2
+    RUNTIME1 --> POD1
+    RUNTIME2 --> POD2
+```
+
+---
+
+### Control Plane Components
+
+The Control Plane manages the Kubernetes cluster and makes decisions about scheduling, detecting/responding to cluster events, and maintaining desired state.
+
+#### 1. API Server (kube-apiserver)
+
+**Function**: The front-end of the Kubernetes control plane. It's the only component that directly interacts with etcd and serves as the gateway for all REST commands used to control the cluster.
+
+**How It Works**:
+- Validates and processes REST requests
+- Authenticates and authorizes users
+- Updates the state in etcd
+- Acts as the central hub for all cluster communication
+
+**Example Flow**:
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as API Server
+    participant Auth as Authentication
+    participant ETCD as etcd
+    participant Scheduler
+    
+    User->>API: kubectl create deployment
+    API->>Auth: Authenticate request
+    Auth->>API: User validated
+    API->>API: Validate & Authorize
+    API->>ETCD: Store deployment spec
+    ETCD->>API: Confirm stored
+    API->>Scheduler: Notify new deployment
+    API->>User: Deployment created
+```
+
+**Bash Commands**:
+```bash
+# Check API server status
+kubectl cluster-info
+
+# View API server logs (if you have access to master node)
+sudo journalctl -u kube-apiserver
+
+# Check API server pod in kube-system namespace
+kubectl get pods -n kube-system | grep kube-apiserver
+
+# Get API server details
+kubectl get pods -n kube-system kube-apiserver-<node-name> -o yaml
+
+# Test API server connectivity
+kubectl get --raw /healthz
+
+# View all API resources
+kubectl api-resources
+
+# Check API versions
+kubectl api-versions
+```
+
+---
+
+#### 2. etcd
+
+**Function**: A distributed, consistent key-value store that stores all cluster data, including configuration, state, and metadata. It's the single source of truth for the cluster.
+
+**How It Works**:
+- Stores cluster state in key-value pairs
+- Uses Raft consensus algorithm for distributed consistency
+- Only the API server reads/writes to etcd
+- Supports watch operations for real-time updates
+
+**Data Stored**:
+- Pods, Services, ConfigMaps, Secrets
+- Network policies, Namespaces
+- Cluster state and metadata
+
+**Bash Commands**:
+```bash
+# Check etcd pod status
+kubectl get pods -n kube-system | grep etcd
+
+# View etcd pod details
+kubectl describe pod -n kube-system etcd-<node-name>
+
+# Access etcd (if running as pod)
+kubectl exec -n kube-system etcd-<node-name> -- etcdctl version
+
+# Backup etcd (important!)
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Check etcd cluster health
+kubectl exec -n kube-system etcd-<node-name> -- etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  endpoint health
+
+# List all keys in etcd
+kubectl exec -n kube-system etcd-<node-name> -- etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  get / --prefix --keys-only
+```
+
+---
+
+#### 3. Scheduler (kube-scheduler)
+
+**Function**: Watches for newly created Pods with no assigned node and selects the optimal node for them to run on based on resource requirements, constraints, and policies.
+
+**How It Works**:
+1. **Filtering**: Eliminates nodes that don't meet Pod requirements
+2. **Scoring**: Ranks remaining nodes based on scoring functions
+3. **Binding**: Assigns Pod to the highest-scoring node
+
+**Scheduling Factors**:
+- Resource requests (CPU, memory)
+- Node affinity/anti-affinity
+- Pod affinity/anti-affinity
+- Taints and tolerations
+- Resource availability
+
+```mermaid
+graph LR
+    A[New Pod Created] --> B[Scheduler Watches API]
+    B --> C{Filter Nodes}
+    C --> D[Node 1: 4GB RAM free]
+    C --> E[Node 2: 2GB RAM free]
+    C --> F[Node 3: Tainted]
+    D --> G[Score Nodes]
+    E --> G
+    F --> H[Filtered Out]
+    G --> I[Select Best Node]
+    I --> J[Bind Pod to Node]
+```
+
+**Bash Commands**:
+```bash
+# Check scheduler status
+kubectl get pods -n kube-system | grep kube-scheduler
+
+# View scheduler logs
+kubectl logs -n kube-system kube-scheduler-<node-name>
+
+# Describe scheduler pod
+kubectl describe pod -n kube-system kube-scheduler-<node-name>
+
+# Create a pod with specific scheduling requirements
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduled-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+  nodeSelector:
+    disktype: ssd
+EOF
+
+# Check which node the pod was scheduled on
+kubectl get pod scheduled-pod -o wide
+
+# View scheduling events
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# Create pod with node affinity
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: affinity-pod
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
+            values:
+            - node1
+  containers:
+  - name: nginx
+    image: nginx
+EOF
+```
+
+---
+
+#### 4. Controller Manager (kube-controller-manager)
+
+**Function**: Runs controller processes that regulate the state of the cluster. Each controller is a separate process that watches the cluster state and makes changes to move the current state toward the desired state.
+
+**Key Controllers**:
+
+##### Node Controller
+- Monitors node health
+- Responds when nodes go down
+
+##### Replication Controller
+- Maintains correct number of pods for ReplicaSets
+
+##### Endpoints Controller
+- Populates Endpoints objects (joins Services & Pods)
+
+##### Service Account & Token Controllers
+- Creates default accounts and API access tokens
+
+**How It Works**:
+```mermaid
+graph TD
+    A[Controller Manager] --> B[Watch API Server]
+    B --> C{Current State = Desired State?}
+    C -->|No| D[Take Action]
+    C -->|Yes| E[Continue Monitoring]
+    D --> F[Update Resources]
+    F --> B
+    E --> B
+```
+
+**Bash Commands**:
+```bash
+# Check controller manager status
+kubectl get pods -n kube-system | grep kube-controller-manager
+
+# View controller manager logs
+kubectl logs -n kube-system kube-controller-manager-<node-name>
+
+# Create a deployment (controlled by Deployment Controller)
+kubectl create deployment nginx-deployment --image=nginx --replicas=3
+
+# View deployment status
+kubectl get deployments
+kubectl describe deployment nginx-deployment
+
+# Scale deployment (triggers controller action)
+kubectl scale deployment nginx-deployment --replicas=5
+
+# Watch controller in action
+kubectl get pods -w
+
+# Delete a pod and watch controller recreate it
+kubectl delete pod <pod-name>
+kubectl get pods -w
+
+# Create a ReplicaSet
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+EOF
+
+# Check ReplicaSet
+kubectl get rs
+kubectl describe rs frontend
+```
+
+---
+
+#### 5. Cloud Controller Manager (cloud-controller-manager)
+
+**Function**: Integrates Kubernetes with underlying cloud provider APIs (AWS, GCP, Azure). It allows cloud-specific control logic to be separated from the core Kubernetes code.
+
+**Cloud-Specific Controllers**:
+- **Node Controller**: Checks if a node has been deleted in the cloud
+- **Route Controller**: Sets up routes in the cloud infrastructure
+- **Service Controller**: Creates/updates/deletes cloud load balancers
+- **Volume Controller**: Creates/attaches/mounts cloud volumes
+
+**How It Works**:
+- Only runs if using a cloud provider
+- Manages cloud-specific resources
+- Handles cloud load balancer creation for LoadBalancer Services
+
+**Bash Commands**:
+```bash
+# Check cloud controller manager (if using cloud provider)
+kubectl get pods -n kube-system | grep cloud-controller-manager
+
+# Create a LoadBalancer service (triggers cloud controller)
+kubectl expose deployment nginx-deployment --type=LoadBalancer --port=80
+
+# Check service with external IP (provided by cloud)
+kubectl get svc -w
+
+# View cloud controller logs
+kubectl logs -n kube-system cloud-controller-manager-<node-name>
+
+# Check node labels added by cloud provider
+kubectl get nodes --show-labels
+
+# Describe node to see cloud provider info
+kubectl describe node <node-name> | grep -A 10 "Provider"
+```
+
+---
+
+### Data Plane Components
+
+The Data Plane consists of worker nodes that run containerized applications. Each node contains components necessary to run and manage pods.
+
+#### 1. Kubelet
+
+**Function**: An agent that runs on each node in the cluster. It ensures containers are running in a Pod as specified by the PodSpecs provided through the API server.
+
+**How It Works**:
+1. Receives Pod specifications from API server
+2. Manages container lifecycle using container runtime
+3. Reports node and pod status back to API server
+4. Executes liveness/readiness probes
+5. Mounts volumes
+
+```mermaid
+sequenceDiagram
+    participant API as API Server
+    participant Kubelet
+    participant Runtime as Container Runtime
+    participant Pod
+    
+    API->>Kubelet: New Pod Assignment
+    Kubelet->>Runtime: Pull Image
+    Runtime->>Runtime: Download image
+    Kubelet->>Runtime: Create Container
+    Runtime->>Pod: Start Container
+    Pod->>Kubelet: Container Running
+    Kubelet->>API: Update Pod Status
+    loop Health Checks
+        Kubelet->>Pod: Liveness Probe
+        Pod->>Kubelet: Healthy
+        Kubelet->>API: Report Status
+    end
+```
+
+**Bash Commands**:
+```bash
+# Check kubelet status (on worker node)
+sudo systemctl status kubelet
+
+# View kubelet logs
+sudo journalctl -u kubelet -f
+
+# Check kubelet configuration
+sudo cat /var/lib/kubelet/config.yaml
+
+# View kubelet version
+kubelet --version
+
+# Get node status (shows kubelet health)
+kubectl get nodes
+kubectl describe node <node-name>
+
+# Check kubelet metrics
+kubectl top nodes
+
+# Create a pod with health checks (managed by kubelet)
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: health-check-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 3
+      periodSeconds: 3
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+EOF
+
+# Check pod events (shows kubelet actions)
+kubectl describe pod health-check-pod
+
+# View kubelet's registered node
+kubectl get nodes -o wide
+```
+
+---
+
+#### 2. Kube-proxy
+
+**Function**: A network proxy that runs on each node, maintaining network rules that allow network communication to Pods from inside or outside the cluster. It implements the Kubernetes Service concept.
+
+**How It Works**:
+- Watches API server for Service and Endpoint changes
+- Maintains network rules (iptables/IPVS) for Service IPs
+- Handles load balancing across Pod endpoints
+- Routes traffic to appropriate Pods
+
+**Operating Modes**:
+1. **iptables mode** (default): Uses iptables rules for routing
+2. **IPVS mode**: Uses Linux IPVS for better performance
+3. **userspace mode**: Legacy mode
+
+```mermaid
+graph LR
+    A[External Request] --> B[Service IP]
+    B --> C[kube-proxy]
+    C --> D{Load Balance}
+    D --> E[Pod 1]
+    D --> F[Pod 2]
+    D --> G[Pod 3]
+```
+
+**Bash Commands**:
+```bash
+# Check kube-proxy pods
+kubectl get pods -n kube-system | grep kube-proxy
+
+# View kube-proxy logs
+kubectl logs -n kube-system kube-proxy-<pod-id>
+
+# Check kube-proxy configuration
+kubectl get configmap -n kube-system kube-proxy -o yaml
+
+# View kube-proxy mode
+kubectl logs -n kube-system kube-proxy-<pod-id> | grep "proxy mode"
+
+# Create a service
+kubectl create deployment web --image=nginx --replicas=3
+kubectl expose deployment web --port=80 --type=ClusterIP
+
+# View service endpoints (managed by kube-proxy)
+kubectl get endpoints web
+
+# Check iptables rules (on worker node)
+sudo iptables -t nat -L -n | grep <service-ip>
+
+# Test service connectivity
+kubectl run test-pod --image=busybox --rm -it -- wget -O- http://web
+
+# View service details
+kubectl describe svc web
+
+# Create NodePort service
+kubectl expose deployment web --port=80 --type=NodePort --name=web-nodeport
+
+# Access via NodePort
+curl http://<node-ip>:<node-port>
+
+# View IPVS rules (if using IPVS mode)
+sudo ipvsadm -Ln
+```
+
+---
+
+#### 3. Container Runtime
+
+**Function**: The software responsible for running containers. Kubernetes supports several container runtimes through the Container Runtime Interface (CRI).
+
+**Supported Runtimes**:
+- **containerd**: Industry-standard container runtime
+- **CRI-O**: Lightweight container runtime for Kubernetes
+- **Docker Engine**: (via cri-dockerd adapter)
+
+**How It Works**:
+1. Pulls container images from registries
+2. Creates container from image
+3. Starts and stops containers
+4. Manages container resources and isolation
+
+```mermaid
+graph TD
+    A[Kubelet] --> B[CRI API]
+    B --> C{Container Runtime}
+    C --> D[containerd]
+    C --> E[CRI-O]
+    C --> F[Docker + cri-dockerd]
+    D --> G[Container]
+    E --> G
+    F --> G
+```
+
+**Bash Commands**:
+```bash
+# Check container runtime (containerd)
+sudo systemctl status containerd
+
+# List containers with containerd
+sudo ctr -n k8s.io containers list
+
+# Check running containers
+sudo crictl ps
+
+# View container images
+sudo crictl images
+
+# Pull an image
+sudo crictl pull nginx:latest
+
+# View container logs
+sudo crictl logs <container-id>
+
+# Inspect a container
+sudo crictl inspect <container-id>
+
+# Check runtime version
+sudo crictl version
+
+# View pod sandboxes
+sudo crictl pods
+
+# Execute command in container
+sudo crictl exec -it <container-id> /bin/sh
+
+# Check container stats
+sudo crictl stats
+
+# Remove stopped containers
+sudo crictl rm <container-id>
+
+# Check Docker (if using Docker runtime)
+sudo docker ps
+sudo docker images
+sudo systemctl status docker
+```
+
+---
+
+### Complete Workflow Example
+
+Here's how all components work together when you create a deployment:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as API Server
+    participant ETCD
+    participant Sched as Scheduler
+    participant CM as Controller Manager
+    participant Kubelet
+    participant Runtime as Container Runtime
+    
+    User->>API: kubectl create deployment
+    API->>API: Authenticate & Validate
+    API->>ETCD: Store Deployment
+    ETCD->>API: Confirmed
+    API->>User: Deployment created
+    
+    CM->>API: Watch for Deployments
+    API->>CM: New Deployment found
+    CM->>API: Create ReplicaSet
+    API->>ETCD: Store ReplicaSet
+    
+    CM->>API: Watch ReplicaSet
+    API->>CM: ReplicaSet needs Pods
+    CM->>API: Create Pods (3 replicas)
+    API->>ETCD: Store Pod specs
+    
+    Sched->>API: Watch for unscheduled Pods
+    API->>Sched: 3 Pods need scheduling
+    Sched->>Sched: Filter & Score Nodes
+    Sched->>API: Bind Pods to Nodes
+    API->>ETCD: Update Pod bindings
+    
+    Kubelet->>API: Watch for assigned Pods
+    API->>Kubelet: Pods assigned to this node
+    Kubelet->>Runtime: Create containers
+    Runtime->>Runtime: Pull images
+    Runtime->>Runtime: Start containers
+    Kubelet->>API: Update Pod status
+    API->>ETCD: Store Pod status
+```
+
+**Complete Example**:
+
+```bash
+# 1. Create a deployment
+kubectl create deployment nginx-app --image=nginx:latest --replicas=3
+
+# 2. Watch the creation process
+kubectl get deployments -w
+
+# 3. Check the ReplicaSet created by controller
+kubectl get rs
+
+# 4. Check Pods and which nodes they're on (scheduled)
+kubectl get pods -o wide
+
+# 5. Expose the deployment as a service (kube-proxy manages)
+kubectl expose deployment nginx-app --port=80 --type=NodePort
+
+# 6. Check service and endpoints
+kubectl get svc nginx-app
+kubectl get endpoints nginx-app
+
+# 7. Test the service
+kubectl run test --image=busybox --rm -it -- wget -qO- http://nginx-app
+
+# 8. View all events
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# 9. Scale the deployment (controller manager handles)
+kubectl scale deployment nginx-app --replicas=5
+
+# 10. Watch pods being created and scheduled
+kubectl get pods -w
+
+# 11. Check cluster component health
+kubectl get componentstatuses
+
+# 12. View all system pods
+kubectl get pods -n kube-system
+
+# 13. Delete the deployment (cleanup)
+kubectl delete deployment nginx-app
+kubectl delete svc nginx-app
+```
+
+---
+
+### Troubleshooting Commands
+
+```bash
+# Check cluster health
+kubectl cluster-info
+kubectl get componentstatuses
+kubectl get nodes
+
+# View all system components
+kubectl get pods -n kube-system -o wide
+
+# Check specific component logs
+kubectl logs -n kube-system <pod-name>
+
+# Describe problematic resources
+kubectl describe pod <pod-name>
+kubectl describe node <node-name>
+
+# Check events for errors
+kubectl get events --all-namespaces --sort-by=.metadata.creationTimestamp
+
+# Debug DNS issues
+kubectl run test-dns --image=busybox --rm -it -- nslookup kubernetes.default
+
+# Check API server connectivity
+kubectl get --raw /healthz
+kubectl get --raw /readyz
+
+# View kubelet status on nodes
+ssh <node> "sudo systemctl status kubelet"
+
+# Check container runtime
+ssh <node> "sudo systemctl status containerd"
+
+# View iptables rules (networking issues)
+ssh <node> "sudo iptables-save | grep <service-name>"
+
+# Check etcd health
+kubectl exec -n kube-system etcd-<node> -- etcdctl endpoint health
+
+# Resource usage
+kubectl top nodes
+kubectl top pods --all-namespaces
+```
+
+---
+
+### Control Plane vs Data Plane Summary
+
+| Component | Plane | Function |
+|-----------|-------|----------|
+| **API Server** | Control | Gateway for all operations, communicates with etcd |
+| **etcd** | Control | Stores all cluster data and state |
+| **Scheduler** | Control | Assigns Pods to optimal Nodes |
+| **Controller Manager** | Control | Maintains desired state through controllers |
+| **Cloud Controller Manager** | Control | Integrates with cloud providers |
+| **Kubelet** | Data | Manages container lifecycle on each node |
+| **Kube-proxy** | Data | Handles network routing for Services |
+| **Container Runtime** | Data | Runs the actual containers |
+
+All components work together in a continuous reconciliation loop, constantly monitoring and adjusting the cluster to match the desired state.
+
+---
+
 ## Further Reading
 
 - [Kubernetes Official Documentation](https://kubernetes.io/docs/)
