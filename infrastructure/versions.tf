@@ -41,14 +41,16 @@ terraform {
   }
 
   # Remote state backend configuration
-  # Uncomment and configure for team environments
-  # backend "s3" {
-  #   bucket         = "your-terraform-state-bucket"
-  #   key            = "k8s-hello-world/terraform.tfstate"
-  #   region         = "ap-south-1"
-  #   encrypt        = true
-  #   dynamodb_table = "terraform-state-lock"
-  # }
+  # Initialize with: terraform init -backend-config=backend.hcl
+  # The backend.hcl file contains the actual bucket and table names
+  backend "s3" {
+    # Configuration loaded from backend.hcl file
+    # bucket         = "hello-world-terraform-state-XXXXXXXX"
+    # key            = "eks-cluster/terraform.tfstate"
+    # region         = "ap-south-1"
+    # encrypt        = true
+    # dynamodb_table = "hello-world-terraform-lock"
+  }
 }
 
 # =============================================================================

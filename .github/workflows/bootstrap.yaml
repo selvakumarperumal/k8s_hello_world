@@ -1,0 +1,228 @@
+# =============================================================================
+# Bootstrap Infrastructure GitHub Actions Workflow
+# =============================================================================
+# This workflow provisions the S3 bucket and DynamoDB table required for
+# storing Terraform state. Run this ONCE before the main infrastructure.
+#
+# Triggers:
+#   - Manual dispatch with 'apply' or 'destroy' action
+#   - Changes to bootstrap module
+# =============================================================================
+
+name: Bootstrap Infrastructure
+
+on:
+    workflow_dispatch:
+        inputs:
+            action:
+                description: "Terraform action to perform"
+                required: true
+                type: choice
+                options:
+                    - plan
+                    - apply
+                    - destroy
+                default: plan
+
+    push:
+        branches:
+            - main
+        paths:
+            - "infrastructure/bootstrap/**"
+
+env:
+    TF_VERSION: "1.6.6"
+    AWS_REGION: "ap-south-1"
+    WORKING_DIR: "infrastructure/bootstrap"
+
+jobs:
+    # ---------------------------------------------------------------------------
+    # Bootstrap Plan
+    # ---------------------------------------------------------------------------
+    plan:
+        name: Terraform Plan
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Terraform
+              uses: hashicorp/setup-terraform@v3
+              with:
+                  terraform_version: ${{ env.TF_VERSION }}
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: ${{ env.AWS_REGION }}
+
+            - name: Terraform Init
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform init
+
+            - name: Terraform Validate
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform validate
+
+            - name: Terraform Plan
+              working-directory: ${{ env.WORKING_DIR }}
+              run: |
+                  terraform plan \
+                    -out=tfplan \
+                    -input=false
+
+            - name: Upload Plan
+              uses: actions/upload-artifact@v4
+              with:
+                  name: bootstrap-tfplan
+                  path: ${{ env.WORKING_DIR }}/tfplan
+                  retention-days: 5
+
+    # ---------------------------------------------------------------------------
+    # Bootstrap Apply
+    # ---------------------------------------------------------------------------
+    apply:
+        name: Terraform Apply
+        runs-on: ubuntu-latest
+        needs: plan
+        if: github.event.inputs.action == 'apply'
+        environment: bootstrap
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Terraform
+              uses: hashicorp/setup-terraform@v3
+              with:
+                  terraform_version: ${{ env.TF_VERSION }}
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: ${{ env.AWS_REGION }}
+
+            - name: Terraform Init
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform init
+
+            - name: Download Plan
+              uses: actions/download-artifact@v4
+              with:
+                  name: bootstrap-tfplan
+                  path: ${{ env.WORKING_DIR }}
+
+            - name: Terraform Apply
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform apply -auto-approve tfplan
+
+            - name: Get Outputs
+              id: outputs
+              working-directory: ${{ env.WORKING_DIR }}
+              run: |
+                  echo "## Bootstrap Outputs" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Output | Value |" >> $GITHUB_STEP_SUMMARY
+                  echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+                  echo "| S3 Bucket | $(terraform output -raw s3_bucket_name) |" >> $GITHUB_STEP_SUMMARY
+                  echo "| DynamoDB Table | $(terraform output -raw dynamodb_table_name) |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Region | $(terraform output -raw aws_region) |" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Backend Configuration" >> $GITHUB_STEP_SUMMARY
+                  echo '```hcl' >> $GITHUB_STEP_SUMMARY
+                  terraform output -raw backend_config >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+
+                  # Output for other jobs
+                  echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+                  echo "dynamodb_table=$(terraform output -raw dynamodb_table_name)" >> $GITHUB_OUTPUT
+
+            - name: Update backend.hcl
+              working-directory: infrastructure
+              run: |
+                  cat > backend.hcl << EOF
+                  # =============================================================================
+                  # Terraform Backend Configuration (Auto-generated)
+                  # =============================================================================
+                  # Generated by GitHub Actions Bootstrap workflow
+                  # Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                  # =============================================================================
+
+                  bucket         = "${{ steps.outputs.outputs.s3_bucket }}"
+                  key            = "eks-cluster/terraform.tfstate"
+                  region         = "${{ env.AWS_REGION }}"
+                  encrypt        = true
+                  dynamodb_table = "${{ steps.outputs.outputs.dynamodb_table }}"
+                  EOF
+
+                  cat backend.hcl
+
+            - name: Commit backend.hcl
+              uses: stefanzweifel/git-auto-commit-action@v5
+              with:
+                  commit_message: "chore: Update backend.hcl with bootstrap outputs"
+                  file_pattern: "infrastructure/backend.hcl"
+                  commit_user_name: "GitHub Actions"
+                  commit_user_email: "actions@github.com"
+
+    # ---------------------------------------------------------------------------
+    # Bootstrap Destroy
+    # ---------------------------------------------------------------------------
+    destroy:
+        name: Terraform Destroy
+        runs-on: ubuntu-latest
+        if: github.event.inputs.action == 'destroy'
+        environment: bootstrap-destroy
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Terraform
+              uses: hashicorp/setup-terraform@v3
+              with:
+                  terraform_version: ${{ env.TF_VERSION }}
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: ${{ env.AWS_REGION }}
+
+            - name: Terraform Init
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform init
+
+            - name: Empty S3 Bucket
+              working-directory: ${{ env.WORKING_DIR }}
+              run: |
+                  BUCKET=$(terraform output -raw s3_bucket_name 2>/dev/null || echo "")
+                  if [ -n "$BUCKET" ]; then
+                    echo "Emptying bucket: $BUCKET"
+                    aws s3 rm s3://$BUCKET --recursive || true
+                    # Delete all versions
+                    aws s3api list-object-versions --bucket $BUCKET --output json | \
+                      jq -r '.Versions[]? | "\(.Key) \(.VersionId)"' | \
+                      while read key version; do
+                        aws s3api delete-object --bucket $BUCKET --key "$key" --version-id "$version" || true
+                      done
+                    # Delete delete markers
+                    aws s3api list-object-versions --bucket $BUCKET --output json | \
+                      jq -r '.DeleteMarkers[]? | "\(.Key) \(.VersionId)"' | \
+                      while read key version; do
+                        aws s3api delete-object --bucket $BUCKET --key "$key" --version-id "$version" || true
+                      done
+                  fi
+
+            - name: Terraform Destroy
+              working-directory: ${{ env.WORKING_DIR }}
+              run: terraform destroy -auto-approve

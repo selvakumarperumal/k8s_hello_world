@@ -1,16 +1,16 @@
 # FastAPI Hello World - Production-Grade Kubernetes Deployment
 
-A complete DevOps infrastructure for deploying a FastAPI application on AWS EKS with production-grade tooling.
+A complete DevOps infrastructure for deploying a FastAPI application on AWS EKS with production-grade tooling. **All deployments are done via GitHub Actions** - no local tools required!
 
 ## 🚀 Technologies Used
 
 | Technology | Purpose |
-|------------|---------|
+|------------|---------| 
 | **Docker** | Container runtime with multi-stage builds |
 | **Kubernetes (EKS)** | Container orchestration on AWS |
 | **Helm** | Kubernetes package management |
 | **NGINX Ingress** | Ingress controller for external access |
-| **GitHub Actions** | CI/CD pipelines |
+| **GitHub Actions** | CI/CD pipelines (all deployments) |
 | **Argo CD** | GitOps continuous deployment |
 | **Prometheus + Grafana** | Monitoring and observability |
 | **Terraform** | Infrastructure as Code |
@@ -26,110 +26,101 @@ k8s_hello_world/
 │   └── requirements.txt        # Python dependencies
 │
 ├── infrastructure/             # Terraform IaC
+│   ├── bootstrap/              # S3 + DynamoDB for state (run once)
 │   ├── main.tf                 # VPC, EKS, ECR resources
-│   ├── variables.tf            # Input variables
-│   ├── outputs.tf              # Output values
-│   ├── versions.tf             # Provider versions
-│   └── terraform.tfvars        # Environment configuration
+│   ├── backend.hcl             # Remote state configuration
+│   └── terraform.tfvars        # Environment variables
 │
 ├── helm/                       # Helm Charts
 │   └── fastapi-app/
-│       ├── Chart.yaml          # Chart metadata
 │       ├── values.yaml         # Default values
-│       ├── values-*.yaml       # Environment-specific values
-│       └── templates/          # Kubernetes manifests
+│       ├── values-ci.yaml      # CI-generated (image tags)
+│       └── values-*.yaml       # Environment-specific
 │
 ├── argocd/                     # Argo CD GitOps
-│   ├── applications/           # Application manifests
-│   ├── projects/               # AppProject definitions
-│   └── install/                # Argo CD Helm values
-│
-├── monitoring/                 # Observability
-│   ├── prometheus-values.yaml  # Prometheus configuration
-│   ├── dashboards/             # Grafana dashboards
-│   └── alerts/                 # Alert rules
-│
-├── service-mesh/               # Linkerd Service Mesh
-│   ├── linkerd-values.yaml     # Linkerd configuration
-│   └── policies/               # Authorization & traffic policies
-│
-├── security/                   # Security Configurations
-│   ├── network-policies/       # Network segmentation
-│   ├── pod-security/           # Pod Security Standards
-│   └── secrets/                # External Secrets integration
+├── monitoring/                 # Prometheus + Grafana
+├── service-mesh/               # Linkerd
+├── security/                   # Network policies, PSS
 │
 ├── .github/workflows/          # CI/CD Pipelines
+│   ├── bootstrap.yaml          # Create S3/DynamoDB (run once)
+│   ├── infrastructure.yaml     # Deploy VPC/EKS/ECR
 │   ├── docker-build.yaml       # Build and push images
-│   ├── infrastructure.yaml     # Terraform deployment
 │   └── security-scan.yaml      # Security scanning
 │
 └── docs/                       # Documentation
-    ├── DEPLOYMENT.md           # Step-by-step guide
-    ├── ARCHITECTURE.md         # System architecture
-    └── RUNBOOK.md              # Operations manual
+    └── COMPLETE_GUIDE.md       # 📖 Start here!
 ```
 
-## 🏁 Quick Start
+## 🏁 Quick Start (GitHub Actions Only)
 
-### Prerequisites
+### Step 1: Configure GitHub Secrets
 
-- AWS CLI configured with appropriate permissions
-- kubectl, helm, terraform installed
-- Docker for local builds
+Go to **Settings → Secrets and variables → Actions** and add:
 
-### 1. Deploy Infrastructure
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | Your AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | Your AWS secret key |
+| `AWS_ACCOUNT_ID` | Your AWS account ID |
+
+### Step 2: Run Bootstrap (Once)
+
+Creates S3 bucket and DynamoDB table for Terraform state.
+
+1. Go to **Actions → Bootstrap Infrastructure**
+2. Click **Run workflow** → Select `apply` → Run
+
+### Step 3: Deploy Infrastructure
+
+Creates VPC, EKS cluster, and ECR repository.
+
+1. Go to **Actions → Infrastructure**
+2. Click **Run workflow** → Select `apply` → Run
+
+### Step 4: Build & Deploy Application
+
+Push code changes to `app/**` folder, or:
+
+1. Go to **Actions → Build and Deploy**
+2. Click **Run workflow** → Run
+
+### Step 5: Install Cluster Components
+
+Via AWS CloudShell:
 
 ```bash
-cd infrastructure
-terraform init
-terraform apply -auto-approve
+# Configure kubectl
 aws eks update-kubeconfig --region ap-south-1 --name hello-world-dev-eks
-```
 
-### 2. Build and Push Docker Image
-
-```bash
-# Login to ECR
-aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $(terraform output -raw ecr_repository_url)
-
-# Build and push
-docker build -t $(terraform output -raw ecr_repository_url):latest ./app
-docker push $(terraform output -raw ecr_repository_url):latest
-```
-
-### 3. Deploy Application
-
-```bash
 # Install NGINX Ingress
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
 
-# Deploy with Helm
-helm upgrade --install fastapi-app ./helm/fastapi-app \
-  --namespace production --create-namespace \
-  --set image.repository=$(terraform output -raw ecr_repository_url)
+# Install Argo CD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Apply GitOps configuration
+kubectl apply -f argocd/projects/
+kubectl apply -f argocd/applications/
 ```
 
-### 4. Access the Application
+## 🔄 Deployment Flow
 
-```bash
-# Get ingress URL
-kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-
-# Test
-curl -H "Host: hello.example.com" http://<INGRESS_URL>/health
+```
+Push Code → GitHub Actions → Build Docker → Push ECR → Update values-ci.yaml → Argo CD Syncs
 ```
 
-## 📊 Monitoring
+**No local deployment needed!** Just push code and GitHub Actions handles everything.
 
-```bash
-# Install Prometheus/Grafana
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
+## 📚 Documentation
 
-# Access Grafana (admin/prom-operator)
-kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80
-```
+| Document | Description |
+|----------|-------------|
+| **[COMPLETE_GUIDE.md](docs/COMPLETE_GUIDE.md)** | 📖 **Start here!** Full architecture + GitHub Actions deployment |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and diagrams |
+| [RUNBOOK.md](docs/RUNBOOK.md) | Operations and troubleshooting |
 
 ## 🔒 Security Features
 
@@ -139,44 +130,21 @@ kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80
 - **Secret Management**: AWS Secrets Manager integration
 - **Security Scanning**: Trivy, Checkov in CI/CD
 
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| **[COMPLETE_GUIDE.md](docs/COMPLETE_GUIDE.md)** | 📖 **Start here!** Full architecture explanation + deployment |
-| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Step-by-step deployment commands |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and diagrams |
-| [RUNBOOK.md](docs/RUNBOOK.md) | Operations and troubleshooting |
-
-## 🏷️ Environments
-
-| Environment | Namespace | Branch | Auto-Sync |
-|-------------|-----------|--------|-----------|
-| Development | `development` | `develop` | ✅ |
-| Staging | `staging` | `develop` | ✅ |
-| Production | `production` | `main` | ❌ (Manual) |
-
 ## 💰 Cost Estimation (ap-south-1)
 
 | Resource | Monthly Cost (USD) |
 |----------|-------------------|
 | EKS Control Plane | ~$73 |
 | 2x t3.medium (Spot) | ~$20-30 |
-| ALB | ~$16 + data |
-| NAT Gateway | ~$32 + data |
+| ALB + NAT Gateway | ~$48 + data |
+| S3 + DynamoDB (State) | ~$2 |
 | ECR Storage | ~$1-5 |
-| **Total (Dev)** | **~$140-160** |
+| **Total (Dev)** | **~$150-170** |
 
 ## 🧹 Cleanup
 
-```bash
-# Delete Helm releases
-helm uninstall fastapi-app -n production
-
-# Destroy infrastructure
-cd infrastructure
-terraform destroy -auto-approve
-```
+1. **Destroy Infrastructure**: Actions → Infrastructure → `destroy`
+2. **Destroy Bootstrap**: Actions → Bootstrap Infrastructure → `destroy`
 
 ## 📝 License
 
