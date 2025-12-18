@@ -59,55 +59,90 @@ A production-ready FastAPI Hello World application deployed on AWS EKS (Elastic 
 
 ```
 k8s_hello_world/
-├── app/                              # FastAPI application
-│   ├── main.py                       # Application code
-│   ├── requirements.txt              # Python dependencies
-│   ├── Dockerfile                    # Multi-stage Docker build
-│   └── .dockerignore                 # Docker build exclusions
+├── app/                                  # FastAPI application
+│   ├── main.py                           # Application code
+│   ├── requirements.txt                  # Python dependencies
+│   ├── Dockerfile                        # Multi-stage Docker build
+│   └── .dockerignore                     # Docker build exclusions
+│
 ├── infrastructure/
-│   ├── bootstrap/                    # Terraform state management
-│   │   ├── main.tf                   # S3 bucket + DynamoDB table
-│   │   ├── variables.tf              # Configuration variables
-│   │   └── outputs.tf                # Output values
-│   └── terraform/                    # EKS infrastructure
-│       ├── main.tf                   # Main configuration
-│       ├── vpc.tf                    # VPC and networking
-│       ├── eks.tf                    # EKS cluster
-│       ├── ecr.tf                    # ECR repository
-│       ├── iam.tf                    # IAM roles and policies
-│       ├── variables.tf              # Configuration variables
-│       ├── outputs.tf                # Output values
-│       └── environments/             # Environment configs
-│           ├── dev.tfvars
-│           ├── test.tfvars
-│           └── prod.tfvars
-├── k8s/                              # Kubernetes manifests
-│   ├── base/                         # Base configurations
+│   ├── bootstrap/                        # Terraform state management (S3 + DynamoDB)
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   ├── terraform/                        # EKS infrastructure
+│   │   ├── main.tf                       # Main configuration
+│   │   ├── vpc.tf                        # VPC and networking
+│   │   ├── eks.tf                        # EKS cluster
+│   │   ├── ecr.tf                        # ECR repository
+│   │   ├── iam.tf                        # IAM roles and policies
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   └── environments/                 # Environment configs
+│   │       ├── dev.tfvars
+│   │       ├── test.tfvars
+│   │       └── prod.tfvars
+│   │
+│   ├── helm/                             # ⎈ Helm charts
+│   │   └── fastapi-app/
+│   │       ├── Chart.yaml
+│   │       ├── values.yaml
+│   │       ├── values-dev.yaml
+│   │       ├── values-prod.yaml
+│   │       └── templates/
+│   │           ├── deployment.yaml
+│   │           ├── service.yaml
+│   │           ├── ingress.yaml
+│   │           ├── hpa.yaml
+│   │           ├── serviceaccount.yaml
+│   │           ├── servicemonitor.yaml
+│   │           └── _helpers.tpl
+│   │
+│   ├── argocd/                           # 🔀 GitOps with Argo CD
+│   │   ├── projects/
+│   │   │   └── fastapi.yaml
+│   │   └── applications/
+│   │       ├── fastapi-dev.yaml
+│   │       └── fastapi-prod.yaml
+│   │
+│   └── monitoring/                       # 📊 Prometheus + Grafana
+│       ├── kube-prometheus-stack-values.yaml
+│       ├── servicemonitor.yaml
+│       └── alerting-rules.yaml
+│
+├── k8s/                                  # Kubernetes manifests (Kustomize)
+│   ├── base/                             # Base configurations
 │   │   ├── deployment.yaml
 │   │   ├── service.yaml
+│   │   ├── ingress.yaml
 │   │   └── kustomization.yaml
-│   └── overlays/                     # Environment overlays
-│       ├── dev/
-│       ├── test/
-│       └── prod/
-├── .github/workflows/                # CI/CD pipelines (MANUAL TRIGGER ONLY)
-│   ├── docker-build.yml              # Build & push to ECR
-│   ├── terraform-plan.yml            # Plan changes
-│   ├── terraform-apply.yml           # Apply infrastructure
-│   ├── terraform-destroy.yml         # Destroy infrastructure
-│   └── deploy.yml                    # Deploy to EKS
-└── docs/                             # Documentation
-    ├── LEARNING_ROADMAP.md           # 🗺️ Complete Learning Path
-    ├── DOCKER.md                     # 🐳 Docker Fundamentals
-    ├── KUBERNETES.md                 # ☸️ K8s Learning Guide
-    ├── HELM.md                       # ⎈ Helm Package Manager
-    ├── NGINX_INGRESS.md              # 🌐 Ingress Controller
-    ├── GITHUB_ACTIONS.md             # 🔄 CI/CD Pipelines
-    ├── ARGOCD.md                     # 🔀 GitOps with Argo CD
-    ├── MONITORING.md                 # 📊 Prometheus + Grafana
-    ├── TERRAFORM.md                  # 🏗️ Infrastructure as Code
-    ├── DEPLOYMENT.md                 # 🚀 Deployment Guide
-    └── TROUBLESHOOTING.md            # 🔧 Troubleshooting
+│   ├── overlays/                         # Environment overlays
+│   │   ├── dev/
+│   │   ├── test/
+│   │   └── prod/
+│   └── ingress-nginx/                    # 🌐 NGINX Ingress Controller
+│       └── kustomization.yaml
+│
+├── .github/workflows/                    # 🔄 CI/CD pipelines (MANUAL TRIGGER)
+│   ├── docker-build.yml                  # Build & push to ECR
+│   ├── terraform-plan.yml                # Plan infrastructure changes
+│   ├── terraform-apply.yml               # Apply infrastructure
+│   ├── terraform-destroy.yml             # Destroy infrastructure
+│   └── deploy.yml                        # Deploy to EKS
+│
+└── docs/                                 # 📚 Documentation
+    ├── LEARNING_ROADMAP.md               # 🗺️ Complete Learning Path
+    ├── DOCKER.md                         # 🐳 Docker Fundamentals
+    ├── KUBERNETES.md                     # ☸️ K8s Learning Guide
+    ├── HELM.md                           # ⎈ Helm Package Manager
+    ├── NGINX_INGRESS.md                  # 🌐 Ingress Controller
+    ├── GITHUB_ACTIONS.md                 # 🔄 CI/CD Pipelines
+    ├── ARGOCD.md                         # 🔀 GitOps with Argo CD
+    ├── MONITORING.md                     # 📊 Prometheus + Grafana
+    ├── TERRAFORM.md                      # 🏗️ Infrastructure as Code
+    ├── DEPLOYMENT.md                     # 🚀 Deployment Guide
+    └── TROUBLESHOOTING.md                # 🔧 Troubleshooting
 ```
 
 ## 🚀 How to Run This App
@@ -289,17 +324,78 @@ cd infrastructure/bootstrap
 terraform destroy
 ```
 
-## 🔧 GitHub Actions Workflows
+## 🔧 Deploy Using GitHub Actions
 
-> **All workflows are MANUAL TRIGGER ONLY** - designed for learning and controlled deployments.
+> **All workflows are MANUAL TRIGGER ONLY** - Go to `Actions` tab → Select workflow → Click `Run workflow`
 
-| Workflow | Trigger | Description |
+### Step-by-Step Deployment via GitHub Actions
+
+#### 1️⃣ Setup GitHub Secrets
+
+Go to `Settings` → `Secrets and variables` → `Actions` → Add these secrets:
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `AWS_ACCESS_KEY_ID` | AWS access key | `AKIA...` |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | `wJal...` |
+| `AWS_ACCOUNT_ID` | Your AWS account ID | `123456789012` |
+| `AWS_REGION` | AWS region | `ap-south-1` |
+
+#### 2️⃣ Deploy Infrastructure (Run Once)
+
+```
+Actions → terraform-apply.yml → Run workflow
+  ├── Select environment: dev
+  └── Wait ~15-20 minutes for EKS cluster
+```
+
+#### 3️⃣ Build Docker Image
+
+```
+Actions → docker-build.yml → Run workflow
+  ├── Select environment: dev
+  └── Image pushed to ECR
+```
+
+#### 4️⃣ Deploy Application to EKS
+
+```
+Actions → deploy.yml → Run workflow
+  ├── Select environment: dev
+  ├── Enter image tag (or 'latest')
+  └── App deployed to EKS
+```
+
+#### 5️⃣ Access Your Application
+
+```bash
+# Configure kubectl locally
+aws eks update-kubeconfig --name fastapi-eks-dev --region ap-south-1
+
+# Port forward to access
+kubectl port-forward service/fastapi-service 8000:80 -n fastapi-dev
+
+# Visit http://localhost:8000
+```
+
+### Workflow Reference
+
+| Workflow | Purpose | When to Use |
 |----------|---------|-------------|
-| `docker-build.yml` | Manual | Builds Docker image and pushes to ECR |
-| `terraform-plan.yml` | Manual | Runs `terraform plan` to preview changes |
-| `terraform-apply.yml` | Manual (requires confirmation) | Applies infrastructure changes |
-| `terraform-destroy.yml` | Manual (double confirmation) | Destroys infrastructure |
-| `deploy.yml` | Manual | Deploys application to EKS |
+| `terraform-plan.yml` | Preview changes | Before applying infrastructure |
+| `terraform-apply.yml` | Create/update EKS | First-time setup or updates |
+| `docker-build.yml` | Build & push image | After code changes |
+| `deploy.yml` | Deploy to EKS | After new image is built |
+| `terraform-destroy.yml` | Delete everything | Cleanup to stop charges |
+
+### Destroy Infrastructure (Cleanup)
+
+```
+Actions → terraform-destroy.yml → Run workflow
+  ├── Select environment: dev
+  ├── Type 'destroy' to confirm
+  └── All resources deleted
+```
 
 ### Required GitHub Secrets
 
