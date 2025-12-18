@@ -1,0 +1,80 @@
+# ==============================================================================
+# PrometheusRule - FastAPI Alerting Rules
+# ==============================================================================
+#
+# Custom alerting rules for the FastAPI application.
+#
+# INSTALLATION:
+# -------------
+# kubectl apply -f infrastructure/monitoring/alerting-rules.yaml
+#
+# ==============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fastapi-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: fastapi
+spec:
+  groups:
+    - name: fastapi.rules
+      rules:
+        # High error rate alert
+        - alert: FastAPIHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="fastapi", status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="fastapi"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            app: fastapi
+          annotations:
+            summary: "High 5xx error rate in FastAPI"
+            description: "Error rate is {{ $value | humanizePercentage }} (over 5%)"
+
+        # High latency alert
+        - alert: FastAPIHighLatency
+          expr: |
+            histogram_quantile(0.95, 
+              sum(rate(http_request_duration_seconds_bucket{job="fastapi"}[5m])) by (le)
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+            app: fastapi
+          annotations:
+            summary: "High latency in FastAPI"
+            description: "95th percentile latency is {{ $value }}s (over 1s)"
+
+        # Pod restart alert
+        - alert: FastAPIPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace=~"fastapi-.*",
+              container="fastapi"
+            }[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+            app: fastapi
+          annotations:
+            summary: "FastAPI Pod {{ $labels.pod }} restarting frequently"
+            description: "Pod has restarted {{ $value }} times in the last hour"
+
+        # Pod not ready alert
+        - alert: FastAPIPodNotReady
+          expr: |
+            kube_pod_status_ready{
+              namespace=~"fastapi-.*",
+              condition="true"
+            } == 0
+          for: 5m
+          labels:
+            severity: critical
+            app: fastapi
+          annotations:
+            summary: "FastAPI Pod {{ $labels.pod }} not ready"
+            description: "Pod has been not ready for more than 5 minutes"

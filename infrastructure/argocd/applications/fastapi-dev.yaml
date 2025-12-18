@@ -1,0 +1,72 @@
+# ==============================================================================
+# Argo CD Application - FastAPI Development
+# ==============================================================================
+#
+# This Application syncs the dev overlay from Git to the cluster.
+# Argo CD will automatically detect changes and sync them.
+#
+# ==============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-dev
+  namespace: argocd
+  # Optional: Finalizer for cascade deletion
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # The project this application belongs to
+  project: fastapi
+
+  # Source configuration - where to get manifests
+  source:
+    repoURL: https://github.com/selvakumarperumal/k8s_hello_world.git
+    targetRevision: main
+    path: k8s/overlays/dev
+
+    # For Kustomize-based applications (auto-detected)
+    # kustomize:
+    #   images:
+    #     - name: fastapi-hello
+    #       newTag: latest
+
+  # Destination configuration - where to deploy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fastapi-dev
+
+  # Sync policy - how to sync
+  syncPolicy:
+    # Automated sync configuration
+    automated:
+      # Automatically delete resources removed from Git
+      prune: true
+      # Automatically revert manual changes in cluster
+      selfHeal: true
+      # Allow syncing when there are no resources (for initial sync)
+      allowEmpty: false
+
+    # Sync options
+    syncOptions:
+      # Create namespace if it doesn't exist
+      - CreateNamespace=true
+      # Prune last to avoid issues with dependencies
+      - PruneLast=true
+      # Apply out of sync resources only
+      - ApplyOutOfSyncOnly=true
+
+    # Retry configuration for failed syncs
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences for specific fields (optional)
+  # ignoreDifferences:
+  #   - group: apps
+  #     kind: Deployment
+  #     jsonPointers:
+  #       - /spec/replicas

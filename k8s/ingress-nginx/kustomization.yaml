@@ -1,0 +1,43 @@
+# ==============================================================================
+# NGINX Ingress Controller - Kustomize Installation
+# ==============================================================================
+#
+# This references the official NGINX Ingress Controller manifests.
+#
+# HOW TO USE:
+# -----------
+# Install the controller:
+#   kubectl apply -k k8s/ingress-nginx/
+#
+# Verify installation:
+#   kubectl get pods -n ingress-nginx
+#   kubectl get svc -n ingress-nginx
+#
+# ==============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Use the official NGINX Ingress Controller manifests for AWS
+resources:
+  - https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/aws/deploy.yaml
+
+# Namespace where the controller will be deployed
+namespace: ingress-nginx
+
+# Optional: Additional patches for AWS-specific configuration
+patches:
+  - patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ingress-nginx-controller
+        namespace: ingress-nginx
+        annotations:
+          # Use NLB instead of Classic ELB
+          service.beta.kubernetes.io/aws-load-balancer-type: nlb
+          service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    target:
+      kind: Service
+      name: ingress-nginx-controller
+      namespace: ingress-nginx

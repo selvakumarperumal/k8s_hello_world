@@ -61,5 +61,6 @@ commonLabels:
 # List of Kubernetes manifests to include in this kustomization
 # Each file's resources will be processed and combined
 resources:
-  - deployment.yaml    # FastAPI Deployment
-  - service.yaml       # FastAPI Service
+  - deployment.yaml # FastAPI Deployment
+  - service.yaml # FastAPI Service
+  - ingress.yaml # FastAPI Ingress (requires NGINX Ingress Controller)

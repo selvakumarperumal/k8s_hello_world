@@ -1,0 +1,57 @@
+# ==============================================================================
+# Argo CD Project - FastAPI Applications
+# ==============================================================================
+#
+# A Project defines permissions and restrictions for Applications.
+# This project allows deployments from a specific Git repo to specific namespaces.
+#
+# ==============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fastapi
+  namespace: argocd
+  # Finalizer ensures cleanup of dependent resources
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project description
+  description: FastAPI Hello World applications
+
+  # Allowed source repositories
+  sourceRepos:
+    - "https://github.com/selvakumarperumal/k8s_hello_world.git"
+    # Add more repos if needed
+    # - 'https://github.com/org/*'  # Wildcard for org
+
+  # Allowed destination clusters and namespaces
+  destinations:
+    # Development namespace
+    - namespace: "fastapi-dev"
+      server: https://kubernetes.default.svc
+    # Test namespace
+    - namespace: "fastapi-test"
+      server: https://kubernetes.default.svc
+    # Production namespace
+    - namespace: "fastapi-prod"
+      server: https://kubernetes.default.svc
+
+  # Allowed cluster-scoped resources
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # Allowed namespace-scoped resources (allow all by default)
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # Deny list for certain resources (optional)
+  # namespaceResourceBlacklist:
+  #   - group: ''
+  #     kind: ResourceQuota
+
+  # Orphaned resources monitoring
+  orphanedResources:
+    warn: true

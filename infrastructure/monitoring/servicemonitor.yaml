@@ -1,0 +1,52 @@
+# ==============================================================================
+# ServiceMonitor - FastAPI Application
+# ==============================================================================
+#
+# This ServiceMonitor tells Prometheus to scrape metrics from FastAPI pods.
+# Requires the application to expose a /metrics endpoint.
+#
+# PREREQUISITES:
+# --------------
+# 1. Prometheus Operator installed (via kube-prometheus-stack)
+# 2. FastAPI app exposing /metrics endpoint with prometheus_client
+#
+# INSTALLATION:
+# -------------
+# kubectl apply -f infrastructure/monitoring/servicemonitor.yaml
+#
+# ==============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fastapi-servicemonitor
+  namespace: monitoring
+  labels:
+    app: fastapi
+    # This label ensures Prometheus picks it up
+    release: prometheus
+spec:
+  # Watch services in these namespaces
+  namespaceSelector:
+    matchNames:
+      - fastapi-dev
+      - fastapi-test
+      - fastapi-prod
+
+  # Select services with these labels
+  selector:
+    matchLabels:
+      app: fastapi
+
+  # How to scrape the endpoints
+  endpoints:
+    - port: http # Named port from Service
+      path: /metrics # Metrics endpoint path
+      interval: 30s # Scrape every 30 seconds
+      scrapeTimeout: 10s # Timeout for each scrape
+
+
+      # Optional: Add labels to scraped metrics
+      # relabelings:
+      #   - sourceLabels: [__meta_kubernetes_namespace]
+      #     targetLabel: namespace
