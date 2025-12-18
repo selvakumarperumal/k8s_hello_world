@@ -3,6 +3,9 @@
 [![Terraform Apply](https://img.shields.io/badge/Terraform-Apply-623CE4?logo=terraform)](https://www.terraform.io/)
 [![Docker](https://img.shields.io/badge/Docker-Build-2496ED?logo=docker)](https://www.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-EKS-326CE5?logo=kubernetes)](https://aws.amazon.com/eks/)
+[![Helm](https://img.shields.io/badge/Helm-Charts-0F1689?logo=helm)](https://helm.sh/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?logo=github-actions)](https://github.com/features/actions)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?logo=prometheus)](https://prometheus.io/)
 
 A production-ready FastAPI Hello World application deployed on AWS EKS (Elastic Kubernetes Service) using Terraform for infrastructure as code, with complete CI/CD pipelines via GitHub Actions.
 
@@ -94,10 +97,17 @@ k8s_hello_world/
 │   ├── terraform-destroy.yml         # Destroy infrastructure
 │   └── deploy.yml                    # Deploy to EKS
 └── docs/                             # Documentation
-    ├── KUBERNETES.md                 # 📚 K8s Learning Guide
-    ├── TERRAFORM.md
-    ├── DEPLOYMENT.md
-    └── TROUBLESHOOTING.md
+    ├── LEARNING_ROADMAP.md           # 🗺️ Complete Learning Path
+    ├── DOCKER.md                     # 🐳 Docker Fundamentals
+    ├── KUBERNETES.md                 # ☸️ K8s Learning Guide
+    ├── HELM.md                       # ⎈ Helm Package Manager
+    ├── NGINX_INGRESS.md              # 🌐 Ingress Controller
+    ├── GITHUB_ACTIONS.md             # 🔄 CI/CD Pipelines
+    ├── ARGOCD.md                     # 🔀 GitOps with Argo CD
+    ├── MONITORING.md                 # 📊 Prometheus + Grafana
+    ├── TERRAFORM.md                  # 🏗️ Infrastructure as Code
+    ├── DEPLOYMENT.md                 # 🚀 Deployment Guide
+    └── TROUBLESHOOTING.md            # 🔧 Troubleshooting
 ```
 
 ## 🚀 Quick Start
@@ -203,8 +213,21 @@ Expected response:
 
 ## 📖 Documentation
 
-- [**Kubernetes Learning Guide**](docs/KUBERNETES.md) - 📚 Comprehensive K8s concepts
-- [Terraform Guide](docs/TERRAFORM.md) - Infrastructure setup and configuration
+### 🗺️ Learning Roadmap
+
+Follow the [**Learning Roadmap**](docs/LEARNING_ROADMAP.md) for a structured path through:
+
+| Phase | Topics | Documentation |
+|-------|--------|---------------|
+| 1. Foundation | Docker, Kubernetes | [Docker](docs/DOCKER.md), [Kubernetes](docs/KUBERNETES.md) |
+| 2. Infrastructure | Terraform, EKS | [Terraform](docs/TERRAFORM.md) |
+| 3. Deployment | Helm, Kustomize | [Helm](docs/HELM.md) |
+| 4. Traffic | NGINX Ingress | [NGINX Ingress](docs/NGINX_INGRESS.md) |
+| 5. CI/CD | GitHub Actions, Argo CD | [GitHub Actions](docs/GITHUB_ACTIONS.md), [Argo CD](docs/ARGOCD.md) |
+| 6. Observability | Prometheus, Grafana | [Monitoring](docs/MONITORING.md) |
+
+### Reference Guides
+
 - [Deployment Guide](docs/DEPLOYMENT.md) - Step-by-step deployment instructions
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
