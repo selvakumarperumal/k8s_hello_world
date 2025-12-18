@@ -110,30 +110,51 @@ k8s_hello_world/
     └── TROUBLESHOOTING.md            # 🔧 Troubleshooting
 ```
 
-## 🚀 Quick Start
+## 🚀 How to Run This App
 
 ### Prerequisites
 
-- AWS CLI configured with appropriate credentials
-- Terraform >= 1.0.0
-- Docker
-- kubectl
+| Tool | Version | Install |
+|------|---------|---------|
+| AWS CLI | 2.x | [Install Guide](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) |
+| Terraform | >= 1.0.0 | [Install Guide](https://www.terraform.io/downloads) |
+| Docker | 20.10+ | [Install Guide](https://docs.docker.com/get-docker/) |
+| kubectl | 1.25+ | [Install Guide](https://kubernetes.io/docs/tasks/tools/) |
+| Helm | 3.x | [Install Guide](https://helm.sh/docs/intro/install/) |
 
-### 1. Bootstrap Terraform State Management
+---
+
+### Option 1: Run Locally (Docker Only)
+
+```bash
+# Build and run the FastAPI app locally
+cd app
+docker build -t fastapi-hello .
+docker run -p 8000:8000 fastapi-hello
+
+# Visit http://localhost:8000
+```
+
+---
+
+### Option 2: Deploy to AWS EKS (Full Setup)
+
+#### Step 1: Bootstrap Terraform State
 
 ```bash
 cd infrastructure/bootstrap
 terraform init
 terraform apply
+
+# Note the S3 bucket name from output
 ```
 
-### 2. Deploy EKS Infrastructure
+#### Step 2: Deploy EKS Infrastructure
 
 ```bash
 cd infrastructure/terraform
 
-# Update backend config in main.tf with your account ID
-# Then initialize and apply:
+# Replace YOUR_ACCOUNT_ID with your AWS account ID
 terraform init \
   -backend-config="bucket=fastapi-eks-terraform-state-YOUR_ACCOUNT_ID" \
   -backend-config="key=eks/dev/terraform.tfstate" \
@@ -141,15 +162,19 @@ terraform init \
   -backend-config="dynamodb_table=fastapi-eks-terraform-locks"
 
 terraform apply -var-file=environments/dev.tfvars
+
+# Wait 15-20 minutes for EKS cluster creation
 ```
 
-### 3. Build and Push Docker Image
+#### Step 3: Build and Push Docker Image
 
 ```bash
 cd app
 
-# Login to ECR
-aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com
+# Login to ECR (replace YOUR_ACCOUNT_ID)
+aws ecr get-login-password --region ap-south-1 | \
+  docker login --username AWS --password-stdin \
+  YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com
 
 # Build and push
 docker build -t fastapi-eks-dev .
@@ -157,29 +182,111 @@ docker tag fastapi-eks-dev:latest YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.c
 docker push YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-dev:latest
 ```
 
-### 4. Deploy to Kubernetes
+#### Step 4: Configure kubectl
 
 ```bash
-# Update kubeconfig
 aws eks update-kubeconfig --name fastapi-eks-dev --region ap-south-1
-
-# Update k8s/overlays/dev/kustomization.yaml with your ECR URL
-# Then deploy:
-kubectl apply -f k8s/overlays/dev/namespace.yaml
-kubectl apply -k k8s/overlays/dev/
+kubectl get nodes  # Verify connection
 ```
 
-### 5. Access the Application
+#### Step 5: Deploy Application
+
+**Option A: Deploy with Kustomize**
+```bash
+# Update image in k8s/overlays/dev/kustomization.yaml with your ECR URL
+kubectl apply -k k8s/overlays/dev/
+kubectl get pods -n fastapi-dev
+```
+
+**Option B: Deploy with Helm**
+```bash
+# Update image.repository in values-dev.yaml with your ECR URL
+helm install fastapi ./infrastructure/helm/fastapi-app \
+  -f ./infrastructure/helm/fastapi-app/values-dev.yaml \
+  -n fastapi-dev --create-namespace
+
+helm list -n fastapi-dev
+```
+
+#### Step 6: Access the Application
 
 ```bash
-kubectl port-forward service/dev-fastapi-service 8000:80 -n fastapi-dev
+# Port forward to access locally
+kubectl port-forward service/fastapi-service 8000:80 -n fastapi-dev
+
+# Or for Helm deployment:
+kubectl port-forward service/fastapi-fastapi-app 8000:80 -n fastapi-dev
 ```
 
-Visit: http://localhost:8000
+Visit: **http://localhost:8000**
 
 Expected response:
 ```json
 {"message": "Hello World"}
+```
+
+---
+
+### Option 3: Full Stack Deployment (Ingress + Monitoring)
+
+#### Install NGINX Ingress Controller
+
+```bash
+kubectl apply -k k8s/ingress-nginx/
+kubectl get svc -n ingress-nginx  # Get LoadBalancer URL
+```
+
+#### Install Prometheus + Grafana
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  -n monitoring --create-namespace \
+  -f infrastructure/monitoring/kube-prometheus-stack-values.yaml
+
+# Access Grafana
+kubectl port-forward svc/prometheus-grafana 3000:80 -n monitoring
+# Login: admin / prom-operator
+```
+
+#### Deploy with Argo CD (GitOps)
+
+```bash
+# Install Argo CD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Wait for pods
+kubectl get pods -n argocd -w
+
+# Get admin password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+# Access UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Visit https://localhost:8080 (login: admin)
+
+# Apply Argo CD applications
+kubectl apply -f infrastructure/argocd/projects/
+kubectl apply -f infrastructure/argocd/applications/
+```
+
+---
+
+### Cleanup
+
+```bash
+# Delete Kubernetes resources
+kubectl delete -k k8s/overlays/dev/
+# Or: helm uninstall fastapi -n fastapi-dev
+
+# Destroy infrastructure
+cd infrastructure/terraform
+terraform destroy -var-file=environments/dev.tfvars
+
+# Delete bootstrap (optional)
+cd infrastructure/bootstrap
+terraform destroy
 ```
 
 ## 🔧 GitHub Actions Workflows
