@@ -1,0 +1,94 @@
+# =============================================================================
+# Traffic Split (Canary Deployment)
+# =============================================================================
+# Enables canary deployments by splitting traffic between stable and canary
+# versions of the FastAPI application.
+# =============================================================================
+
+# Service for the stable version
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-app-stable
+  namespace: production
+  labels:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/version: stable
+spec:
+  selector:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/version: stable
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+
+---
+# Service for the canary version
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-app-canary
+  namespace: production
+  labels:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/version: canary
+spec:
+  selector:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/version: canary
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+
+---
+# Traffic split resource
+# This splits traffic between stable and canary versions
+apiVersion: split.smi-spec.io/v1alpha1
+kind: TrafficSplit
+metadata:
+  name: fastapi-app-canary
+  namespace: production
+spec:
+  # The root service that receives all traffic
+  service: fastapi-app
+
+  # Traffic distribution
+  backends:
+    # 90% to stable
+    - service: fastapi-app-stable
+      weight: 900
+    # 10% to canary
+    - service: fastapi-app-canary
+      weight: 100
+
+---
+# HTTPRoute for header-based routing (alternative to traffic split)
+# Routes requests with specific headers to canary
+apiVersion: policy.linkerd.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: fastapi-app-canary-header
+  namespace: production
+spec:
+  parentRefs:
+    - name: fastapi-app
+      kind: Service
+      group: core
+      port: 80
+
+  rules:
+    # Route traffic with canary header to canary service
+    - matches:
+        - headers:
+            - name: x-canary
+              value: "true"
+      backendRefs:
+        - name: fastapi-app-canary
+          port: 80
+
+    # Default route to stable
+    - backendRefs:
+        - name: fastapi-app-stable
+          port: 80

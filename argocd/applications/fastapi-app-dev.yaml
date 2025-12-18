@@ -1,0 +1,84 @@
+# =============================================================================
+# Argo CD Application - Development Environment
+# =============================================================================
+# Deploys the FastAPI application to the development namespace.
+# Uses auto-sync for rapid iteration during development.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-app-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/environment: development
+  # Finalizer for proper cleanup
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project reference
+  project: hello-world
+
+  # Source configuration
+  source:
+    repoURL: https://github.com/selvakumarperumal/k8s_hello_world.git
+    targetRevision: develop
+    path: helm/fastapi-app
+
+    # Helm configuration
+    helm:
+      # Values files to use (in order of priority)
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+        - values-ci.yaml # CI-generated values with image tag
+
+      # Additional parameters (can override values)
+      parameters:
+        - name: ingress.hosts[0].host
+          value: hello-dev.example.com
+
+      # Release name
+      releaseName: fastapi-app
+
+  # Destination configuration
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: development
+
+  # Sync policy
+  syncPolicy:
+    # Automatic sync enabled for dev
+    automated:
+      # Automatically prune resources that are no longer in Git
+      prune: true
+      # Automatically fix drift from desired state
+      selfHeal: true
+      # Allow empty manifests (useful during initial setup)
+      allowEmpty: false
+
+    # Sync options
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+
+    # Retry failed syncs
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences for certain fields (e.g., auto-generated)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas # HPA manages this
+
+  # Revision history limit
+  revisionHistoryLimit: 10

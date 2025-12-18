@@ -1,0 +1,40 @@
+apiVersion: v2
+name: fastapi-app
+description: FastAPI Hello World Application Helm Chart
+
+# Chart type: application (deployable) vs library (shared templates)
+type: application
+
+# Chart version - increment on chart changes
+version: 0.1.0
+
+# Application version - matches the application release
+appVersion: "1.0.0"
+
+# Minimum Kubernetes version required
+kubeVersion: ">=1.26.0"
+
+# Keywords for chart discovery
+keywords:
+  - fastapi
+  - python
+  - kubernetes
+  - eks
+  - api
+
+# Maintainers
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com
+
+# Source repository
+home: https://github.com/selvakumarperumal/k8s_hello_world
+sources:
+  - https://github.com/selvakumarperumal/k8s_hello_world
+
+# Dependencies (optional)
+# dependencies:
+#   - name: redis
+#     version: "17.x.x"
+#     repository: "https://charts.bitnami.com/bitnami"
+#     condition: redis.enabled

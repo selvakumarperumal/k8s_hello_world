@@ -1,0 +1,128 @@
+# =============================================================================
+# Prometheus Alert Rules for FastAPI Application
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fastapi-app-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: prometheus
+spec:
+  groups:
+    # -------------------------------------------------------------------------
+    # Availability Alerts
+    # -------------------------------------------------------------------------
+    - name: fastapi.availability
+      rules:
+        - alert: FastAPIAppDown
+          expr: |
+            absent(up{job="fastapi-app"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "FastAPI application is down"
+            description: "FastAPI application has been down for more than 5 minutes."
+            runbook_url: "https://runbooks.example.com/fastapi-down"
+
+        - alert: FastAPIHighPodRestarts
+          expr: |
+            increase(kube_pod_container_status_restarts_total{pod=~".*fastapi.*"}[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI pod experiencing frequent restarts"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour."
+
+        - alert: FastAPILowReplicaCount
+          expr: |
+            kube_deployment_status_replicas_available{deployment=~".*fastapi.*"} < 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI has low replica count"
+            description: "FastAPI deployment has only {{ $value }} available replicas."
+
+    # -------------------------------------------------------------------------
+    # Latency Alerts
+    # -------------------------------------------------------------------------
+    - name: fastapi.latency
+      rules:
+        - alert: FastAPIHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app="fastapi-app"}[5m])) by (le)) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI high response latency"
+            description: "95th percentile latency is {{ $value | humanizeDuration }}."
+
+        - alert: FastAPICriticalLatency
+          expr: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{app="fastapi-app"}[5m])) by (le)) > 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "FastAPI critical response latency"
+            description: "99th percentile latency is {{ $value | humanizeDuration }}."
+
+    # -------------------------------------------------------------------------
+    # Error Rate Alerts
+    # -------------------------------------------------------------------------
+    - name: fastapi.errors
+      rules:
+        - alert: FastAPIHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{app="fastapi-app",status=~"5.."}[5m])) 
+            / sum(rate(http_requests_total{app="fastapi-app"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI high error rate"
+            description: "Error rate is {{ $value | humanizePercentage }}."
+
+        - alert: FastAPICriticalErrorRate
+          expr: |
+            sum(rate(http_requests_total{app="fastapi-app",status=~"5.."}[5m])) 
+            / sum(rate(http_requests_total{app="fastapi-app"}[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "FastAPI critical error rate"
+            description: "Error rate is {{ $value | humanizePercentage }}."
+
+    # -------------------------------------------------------------------------
+    # Resource Alerts
+    # -------------------------------------------------------------------------
+    - name: fastapi.resources
+      rules:
+        - alert: FastAPIHighCPUUsage
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{pod=~".*fastapi.*"}[5m])) by (pod) 
+            / sum(kube_pod_container_resource_limits{pod=~".*fastapi.*",resource="cpu"}) by (pod) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI pod high CPU usage"
+            description: "Pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of CPU limit."
+
+        - alert: FastAPIHighMemoryUsage
+          expr: |
+            sum(container_memory_working_set_bytes{pod=~".*fastapi.*"}) by (pod) 
+            / sum(kube_pod_container_resource_limits{pod=~".*fastapi.*",resource="memory"}) by (pod) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FastAPI pod high memory usage"
+            description: "Pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of memory limit."

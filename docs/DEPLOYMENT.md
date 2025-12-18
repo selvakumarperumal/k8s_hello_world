@@ -1,214 +1,380 @@
 # Deployment Guide
 
-Complete guide for deploying FastAPI Hello World to AWS EKS.
+This guide covers the complete deployment process for the FastAPI Hello World application on AWS EKS.
 
-## 📋 Prerequisites
+## Prerequisites
 
-- AWS CLI configured with credentials
-- Terraform >= 1.0.0
-- Docker
-- kubectl >= 1.29
-- Kustomize (included in kubectl)
+### Required Tools
 
-## 🔐 AWS Credentials Setup
-
-### Option 1: AWS CLI Profile
+Install the following tools on your local machine:
 
 ```bash
+# AWS CLI v2
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
+aws --version
+
+# kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+kubectl version --client
+
+# Helm 3
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+helm version
+
+# Terraform
+wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+unzip terraform_1.6.6_linux_amd64.zip && sudo mv terraform /usr/local/bin/
+terraform version
+
+# Linkerd CLI (for service mesh)
+curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/install | sh
+export PATH=$PATH:$HOME/.linkerd2/bin
+linkerd version
+
+# ArgoCD CLI
+curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+chmod +x argocd-linux-amd64 && sudo mv argocd-linux-amd64 /usr/local/bin/argocd
+argocd version --client
+```
+
+### AWS Configuration
+
+```bash
+# Configure AWS CLI with your credentials
 aws configure
-# Enter: Access Key ID, Secret Access Key, Region (ap-south-1)
+
+# Verify access
+aws sts get-caller-identity
 ```
 
-### Option 2: Environment Variables
+---
+
+## Step 1: Deploy Infrastructure with Terraform
+
+### Initialize and Apply
 
 ```bash
-export AWS_ACCESS_KEY_ID="your-access-key"
-export AWS_SECRET_ACCESS_KEY="your-secret-key"
-export AWS_REGION="ap-south-1"
-```
+cd infrastructure
 
-### Option 3: GitHub Actions Secrets
-
-Add these secrets in your GitHub repository (Settings → Secrets → Actions):
-
-| Secret | Value |
-|--------|-------|
-| `AWS_ACCESS_KEY_ID` | Your AWS access key |
-| `AWS_SECRET_ACCESS_KEY` | Your AWS secret key |
-| `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID |
-| `AWS_REGION` | `ap-south-1` (or your region) |
-
-## 🚀 Deployment Steps
-
-### Step 1: Bootstrap State Management
-
-```bash
-cd infrastructure/bootstrap
+# Initialize Terraform (downloads providers)
 terraform init
-terraform apply
+
+# Review the plan
+terraform plan
+
+# Apply (creates VPC, EKS, ECR)
+terraform apply -auto-approve
+
+# Get outputs
+terraform output
 ```
 
-Note the S3 bucket name from the output.
-
-### Step 2: Deploy Infrastructure
+### Configure kubectl
 
 ```bash
-cd infrastructure/terraform
-
-# Initialize with your account ID
-terraform init \
-  -backend-config="bucket=fastapi-eks-terraform-state-YOUR_ACCOUNT_ID" \
-  -backend-config="key=eks/dev/terraform.tfstate" \
-  -backend-config="region=ap-south-1" \
-  -backend-config="dynamodb_table=fastapi-eks-terraform-locks"
-
-# Deploy dev environment
-terraform apply -var-file=environments/dev.tfvars
-
-# Wait 15-20 minutes for EKS cluster creation
-```
-
-### Step 3: Configure kubectl
-
-```bash
-aws eks update-kubeconfig --name fastapi-eks-dev --region ap-south-1
+# Update kubeconfig for the new cluster
+aws eks update-kubeconfig --region ap-south-1 --name hello-world-dev-eks
 
 # Verify connection
 kubectl get nodes
+kubectl cluster-info
 ```
 
-### Step 4: Build and Push Docker Image
+---
+
+## Step 2: Build and Push Docker Image
+
+### Login to ECR
+
+```bash
+# Get ECR login command
+aws ecr get-login-password --region ap-south-1 | \
+  docker login --username AWS --password-stdin \
+  $(terraform -chdir=infrastructure output -raw ecr_repository_url | sed 's/\/.*//')
+```
+
+### Build and Push
 
 ```bash
 cd app
 
-# Get ECR login
-aws ecr get-login-password --region ap-south-1 | \
-  docker login --username AWS --password-stdin \
-  YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com
+# Build the image
+docker build -t fastapi-hello-world:latest .
 
-# Build image
-docker build -t fastapi-hello .
+# Tag with ECR repository
+ECR_URL=$(terraform -chdir=../infrastructure output -raw ecr_repository_url)
+docker tag fastapi-hello-world:latest $ECR_URL:latest
+docker tag fastapi-hello-world:latest $ECR_URL:$(git rev-parse --short HEAD)
 
-# Tag and push
-docker tag fastapi-hello:latest \
-  YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-dev:latest
-
-docker push YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-dev:latest
+# Push to ECR
+docker push $ECR_URL:latest
+docker push $ECR_URL:$(git rev-parse --short HEAD)
 ```
 
-### Step 5: Update Kustomize Configuration
+---
 
-Edit `k8s/overlays/dev/kustomization.yaml`:
+## Step 3: Install NGINX Ingress Controller
 
-```yaml
-images:
-  - name: fastapi-hello
-    newName: YOUR_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/fastapi-eks-dev
-    newTag: latest
+```bash
+# Add Helm repository
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# Install NGINX Ingress
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace \
+  --set controller.service.type=LoadBalancer \
+  --set controller.metrics.enabled=true \
+  --set controller.metrics.serviceMonitor.enabled=true
+
+# Wait for LoadBalancer
+kubectl -n ingress-nginx get svc ingress-nginx-controller -w
+
+# Get the external hostname
+kubectl -n ingress-nginx get svc ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-### Step 6: Deploy to Kubernetes
+---
+
+## Step 4: Install Argo CD
 
 ```bash
 # Create namespace
-kubectl apply -f k8s/overlays/dev/namespace.yaml
+kubectl create namespace argocd
 
-# Deploy application
-kubectl apply -k k8s/overlays/dev/
+# Install Argo CD
+kubectl apply -n argocd -f \
+  https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Check deployment status
-kubectl get pods -n fastapi-dev
-kubectl get svc -n fastapi-dev
+# Wait for pods to be ready
+kubectl -n argocd wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server --timeout=300s
+
+# Get initial admin password
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d; echo
+
+# Port forward to access UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+
+# Login via CLI (in another terminal)
+argocd login localhost:8080 --username admin --password <password> --insecure
+
+# Apply project and applications
+kubectl apply -f argocd/projects/hello-world.yaml
+kubectl apply -f argocd/applications/
 ```
 
-### Step 7: Access the Application
+**Access Argo CD UI:** https://localhost:8080
+
+---
+
+## Step 5: Deploy Application with Helm
+
+### Option A: Direct Helm Deployment
 
 ```bash
-# Port forward to localhost
-kubectl port-forward service/dev-fastapi-service 8000:80 -n fastapi-dev
+# Get ECR URL
+ECR_URL=$(terraform -chdir=infrastructure output -raw ecr_repository_url)
+
+# Install/upgrade for development
+helm upgrade --install fastapi-app ./helm/fastapi-app \
+  --namespace development \
+  --create-namespace \
+  -f helm/fastapi-app/values.yaml \
+  -f helm/fastapi-app/values-dev.yaml \
+  --set image.repository=$ECR_URL \
+  --set image.tag=latest
+
+# For production
+helm upgrade --install fastapi-app ./helm/fastapi-app \
+  --namespace production \
+  --create-namespace \
+  -f helm/fastapi-app/values.yaml \
+  -f helm/fastapi-app/values-prod.yaml \
+  --set image.repository=$ECR_URL \
+  --set image.tag=latest
 ```
 
-Visit http://localhost:8000
+### Option B: Via Argo CD (GitOps)
 
-## 🤖 GitHub Actions Deployment
-
-### Using Workflows
-
-1. **Push to main branch** → Automatically builds and pushes Docker image
-2. **Create PR** → Runs Terraform plan and posts to PR
-3. **Manual Terraform Apply**:
-   - Go to Actions → Terraform Apply
-   - Select environment (dev/test/prod)
-   - Type "apply" to confirm
-4. **Manual Deploy**:
-   - Go to Actions → Deploy to EKS
-   - Select environment and image tag
-
-### Workflow Reference
-
-| Workflow | When to Use |
-|----------|-------------|
-| Docker Build & Push | Automatic on push, or manual for specific env |
-| Terraform Plan | Automatic on PR, or manual to preview changes |
-| Terraform Apply | Manual - for infrastructure changes |
-| Terraform Destroy | Manual - to tear down infrastructure |
-| Deploy to EKS | Automatic after Docker build, or manual |
-
-## 🔄 Switching Environments
-
-### Deploy to Test
+Argo CD will automatically sync from the Git repository. To manually sync:
 
 ```bash
-# Infrastructure
-cd infrastructure/terraform
-terraform init -reconfigure \
-  -backend-config="key=eks/test/terraform.tfstate"
-terraform apply -var-file=environments/test.tfvars
-
-# Application
-kubectl apply -k k8s/overlays/test/
+argocd app sync fastapi-app-dev
+argocd app sync fastapi-app-prod
 ```
 
-### Deploy to Production
+---
+
+## Step 6: Install Monitoring Stack
 
 ```bash
-# Infrastructure
-terraform init -reconfigure \
-  -backend-config="key=eks/prod/terraform.tfstate"
-terraform apply -var-file=environments/prod.tfvars
+# Add Helm repositories
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
 
-# Application
-kubectl apply -k k8s/overlays/prod/
+# Install Prometheus stack
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  -f monitoring/prometheus-values.yaml
+
+# Port forward Grafana
+kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80
+
+# Default credentials: admin / prom-operator
 ```
 
-## 🧹 Cleanup
+**Access Grafana:** http://localhost:3000
 
-### Delete Application
+---
+
+## Step 7: Install Service Mesh (Linkerd)
 
 ```bash
-kubectl delete -k k8s/overlays/dev/
-kubectl delete namespace fastapi-dev
+# Pre-flight checks
+linkerd check --pre
+
+# Install Linkerd CRDs
+linkerd install --crds | kubectl apply -f -
+
+# Install Linkerd control plane
+linkerd install | kubectl apply -f -
+
+# Verify installation
+linkerd check
+
+# Install viz extension (dashboard)
+linkerd viz install | kubectl apply -f -
+linkerd viz check
+
+# Inject proxy into application (if not using annotation)
+kubectl -n production get deploy fastapi-app -o yaml | \
+  linkerd inject - | kubectl apply -f -
+
+# Open dashboard
+linkerd viz dashboard
 ```
 
-### Destroy Infrastructure
+---
+
+## Step 8: Apply Security Policies
 
 ```bash
-cd infrastructure/terraform
-terraform destroy -var-file=environments/dev.tfvars
+# Apply namespace security standards
+kubectl apply -f security/pod-security/security-standards.yaml
+
+# Apply network policies
+kubectl apply -f security/network-policies/default-policies.yaml
+
+# Install External Secrets Operator (optional)
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace
+
+# Apply external secrets configuration
+kubectl apply -f security/secrets/external-secrets.yaml
 ```
 
-### Delete Bootstrap (Optional - removes state storage)
+---
+
+## Step 9: Configure GitHub Actions
+
+Add the following secrets to your GitHub repository:
+
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key with EKS/ECR permissions |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret access key |
+| `AWS_ACCOUNT_ID` | Your AWS account ID |
+
+Push your code to trigger the CI/CD pipeline:
 
 ```bash
-cd infrastructure/bootstrap
-terraform destroy
+git add .
+git commit -m "Add DevOps infrastructure"
+git push origin main
 ```
 
-## ✅ Verification Checklist
+---
 
-- [ ] Pods are running: `kubectl get pods -n fastapi-dev`
-- [ ] Service is created: `kubectl get svc -n fastapi-dev`
-- [ ] Logs are clean: `kubectl logs -l app=fastapi -n fastapi-dev`
-- [ ] Health check passes: `curl http://localhost:8000/health`
-- [ ] API responds: `curl http://localhost:8000`
+## Step 10: Verify Deployment
+
+```bash
+# Check pods
+kubectl get pods -A
+
+# Check services
+kubectl get svc -A
+
+# Check ingress
+kubectl get ingress -A
+
+# Test health endpoint
+INGRESS_HOST=$(kubectl -n ingress-nginx get svc ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+curl -H "Host: hello.example.com" http://$INGRESS_HOST/health
+
+# Test root endpoint
+curl -H "Host: hello.example.com" http://$INGRESS_HOST/
+```
+
+---
+
+## Troubleshooting
+
+### Pods not starting
+
+```bash
+kubectl describe pod <pod-name> -n <namespace>
+kubectl logs <pod-name> -n <namespace>
+```
+
+### Ingress not working
+
+```bash
+kubectl describe ingress <ingress-name> -n <namespace>
+kubectl -n ingress-nginx logs -l app.kubernetes.io/name=ingress-nginx
+```
+
+### Argo CD sync issues
+
+```bash
+argocd app get fastapi-app-dev
+argocd app diff fastapi-app-dev
+```
+
+### Terraform state issues
+
+```bash
+terraform state list
+terraform refresh
+```
+
+---
+
+## Cleanup
+
+To destroy all resources:
+
+```bash
+# Delete Helm releases
+helm uninstall fastapi-app -n production
+helm uninstall prometheus -n monitoring
+helm uninstall ingress-nginx -n ingress-nginx
+
+# Delete Argo CD
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Delete Linkerd
+linkerd viz uninstall | kubectl delete -f -
+linkerd uninstall | kubectl delete -f -
+
+# Destroy infrastructure
+cd infrastructure
+terraform destroy -auto-approve
+```

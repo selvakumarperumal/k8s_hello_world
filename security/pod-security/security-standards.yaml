@@ -1,0 +1,118 @@
+# =============================================================================
+# Pod Security Standards
+# =============================================================================
+# Implements Kubernetes Pod Security Standards (PSS) using
+# namespace labels for enforcement.
+#
+# Apply to namespaces:
+# kubectl label namespace production pod-security.kubernetes.io/enforce=restricted
+# =============================================================================
+
+# Production namespace with restricted security standards
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    kubernetes.io/metadata.name: production
+    # Pod Security Standards enforcement
+    # restricted = most restrictive, baseline = moderately restrictive, privileged = unrestricted
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    # Warn on baseline violations (for debugging)
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    # Audit all violations
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+
+---
+# Staging namespace with baseline security (less restrictive for testing)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    kubernetes.io/metadata.name: staging
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+
+---
+# Development namespace (more permissive for local testing)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+  labels:
+    kubernetes.io/metadata.name: development
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn-version: latest
+
+---
+# Resource Quota for production namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    # Pod limits
+    pods: "50"
+    # CPU limits
+    requests.cpu: "10"
+    limits.cpu: "20"
+    # Memory limits
+    requests.memory: 10Gi
+    limits.memory: 20Gi
+    # Storage limits
+    requests.storage: 100Gi
+    persistentvolumeclaims: "10"
+    # Service limits
+    services: "20"
+    services.loadbalancers: "2"
+    services.nodeports: "0"
+    # Secret/ConfigMap limits
+    secrets: "50"
+    configmaps: "50"
+
+---
+# Limit Range for default resource requests/limits
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+    # Default limits for containers
+    - default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 10m
+        memory: 16Mi
+      type: Container
+
+    # Limits for pods
+    - max:
+        cpu: "4"
+        memory: 8Gi
+      type: Pod
+
+    # Limits for PVCs
+    - max:
+        storage: 50Gi
+      min:
+        storage: 1Gi
+      type: PersistentVolumeClaim

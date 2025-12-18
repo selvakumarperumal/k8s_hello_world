@@ -1,0 +1,113 @@
+# =============================================================================
+# Linkerd Authorization Policy
+# =============================================================================
+# Defines fine-grained access control for the FastAPI application.
+# Requires Linkerd policy controller to be enabled.
+# =============================================================================
+
+# Server definition for the FastAPI application
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata:
+  name: fastapi-app
+  namespace: production
+  labels:
+    app.kubernetes.io/name: fastapi-app
+spec:
+  # Pod selector
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fastapi-app
+
+  # Port to apply policy to
+  port: http
+
+  # Proxy protocol
+  proxyProtocol: HTTP/1
+
+---
+# Authorization policy - Allow from ingress
+apiVersion: policy.linkerd.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress
+  namespace: production
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: fastapi-app
+  requiredAuthenticationRefs:
+    - name: ingress-nginx
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+# MeshTLS Authentication for ingress
+apiVersion: policy.linkerd.io/v1beta1
+kind: MeshTLSAuthentication
+metadata:
+  name: ingress-nginx
+  namespace: production
+spec:
+  # Identities allowed to access
+  identities:
+    - "*.ingress-nginx.serviceaccount.identity.linkerd.cluster.local"
+
+---
+# Authorization policy - Allow from monitoring
+apiVersion: policy.linkerd.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus
+  namespace: production
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: fastapi-app
+  requiredAuthenticationRefs:
+    - name: prometheus
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+# MeshTLS Authentication for Prometheus
+apiVersion: policy.linkerd.io/v1beta1
+kind: MeshTLSAuthentication
+metadata:
+  name: prometheus
+  namespace: production
+spec:
+  identities:
+    - "*.monitoring.serviceaccount.identity.linkerd.cluster.local"
+
+---
+# Network Authentication for health checks (unauthenticated)
+apiVersion: policy.linkerd.io/v1beta1
+kind: NetworkAuthentication
+metadata:
+  name: kubelet-health-checks
+  namespace: production
+spec:
+  networks:
+    # Allow from cluster CIDR for health checks
+    - cidr: 10.0.0.0/8
+    - cidr: 172.16.0.0/12
+
+---
+# Authorization policy for health check endpoints
+apiVersion: policy.linkerd.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-health-checks
+  namespace: production
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: fastapi-app
+  requiredAuthenticationRefs:
+    - name: kubelet-health-checks
+      kind: NetworkAuthentication
+      group: policy.linkerd.io

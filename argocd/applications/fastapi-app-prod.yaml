@@ -1,0 +1,85 @@
+# =============================================================================
+# Argo CD Application - Production Environment
+# =============================================================================
+# Deploys the FastAPI application to the production namespace.
+# Manual sync required for production safety.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-app-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/environment: production
+  annotations:
+    # Notifications for production deployments
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: production-deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: production-alerts
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: hello-world
+
+  source:
+    repoURL: https://github.com/selvakumarperumal/k8s_hello_world.git
+    targetRevision: main # Production uses main branch
+    path: helm/fastapi-app
+
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+        - values-ci.yaml
+
+      parameters:
+        - name: ingress.hosts[0].host
+          value: hello.example.com
+        # Override for production TLS
+        - name: ingress.tls[0].secretName
+          value: hello-example-com-tls
+        - name: ingress.tls[0].hosts[0]
+          value: hello.example.com
+
+      releaseName: fastapi-app
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+
+  syncPolicy:
+    # NO automated sync for production - manual approval required
+    # automated: {}
+
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      # Validate manifests before applying
+      - Validate=true
+
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+
+  # Pre-sync and post-sync hooks can be defined in the Helm chart
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    # Ignore certificate updates managed by cert-manager
+    - group: ""
+      kind: Secret
+      name: hello-example-com-tls
+      jsonPointers:
+        - /data
+
+  revisionHistoryLimit: 20

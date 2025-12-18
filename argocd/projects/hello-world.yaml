@@ -1,0 +1,116 @@
+# =============================================================================
+# Argo CD Project Configuration
+# =============================================================================
+# Defines the AppProject for the Hello World application.
+# Projects provide logical grouping and access control for applications.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: hello-world
+  namespace: argocd
+  # Finalizer ensures project is cleaned up properly
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project description
+  description: FastAPI Hello World Application Project
+
+  # Source repositories that can be used by applications in this project
+  sourceRepos:
+    - "https://github.com/selvakumarperumal/k8s_hello_world.git"
+    # Allow Helm chart repositories
+    - "https://charts.helm.sh/stable"
+    - "https://kubernetes.github.io/ingress-nginx"
+    - "https://prometheus-community.github.io/helm-charts"
+    - "https://grafana.github.io/helm-charts"
+
+  # Destination clusters and namespaces where apps can be deployed
+  destinations:
+    # Development
+    - namespace: development
+      server: https://kubernetes.default.svc
+    # Staging
+    - namespace: staging
+      server: https://kubernetes.default.svc
+    # Production
+    - namespace: production
+      server: https://kubernetes.default.svc
+    # Monitoring namespace (for Prometheus/Grafana)
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    # Ingress namespace
+    - namespace: ingress-nginx
+      server: https://kubernetes.default.svc
+
+  # Cluster resource allow list (for resources that are cluster-scoped)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "networking.k8s.io"
+      kind: IngressClass
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+
+  # Namespace resource allow list (for resources that are namespace-scoped)
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: "apps"
+      kind: "*"
+    - group: "networking.k8s.io"
+      kind: "*"
+    - group: "autoscaling"
+      kind: "*"
+    - group: "policy"
+      kind: "*"
+    - group: "monitoring.coreos.com"
+      kind: "*"
+
+  # Roles - define access for users/groups
+  roles:
+    # Read-only role for developers
+    - name: read-only
+      description: Read-only access to all applications
+      policies:
+        - p, proj:hello-world:read-only, applications, get, hello-world/*, allow
+        - p, proj:hello-world:read-only, applications, sync, hello-world/*, deny
+      groups:
+        - developers
+
+    # Deployment role for CI/CD
+    - name: ci-role
+      description: CI/CD role for automated deployments
+      policies:
+        - p, proj:hello-world:ci-role, applications, *, hello-world/*, allow
+        - p, proj:hello-world:ci-role, repositories, get, hello-world/*, allow
+      # JWT tokens for CI/CD systems
+      # jwtTokens:
+      #   - iat: 1234567890
+      #     id: deploy-token
+
+    # Admin role
+    - name: admin
+      description: Full access to all applications
+      policies:
+        - p, proj:hello-world:admin, applications, *, hello-world/*, allow
+        - p, proj:hello-world:admin, repositories, *, hello-world/*, allow
+      groups:
+        - platform-team
+
+  # Sync windows - when automatic sync is allowed
+  syncWindows:
+    # Allow manual sync anytime
+    - kind: allow
+      schedule: "* * * * *"
+      duration: 1h
+      manualSync: true
+    # Deny automatic sync on weekends
+    - kind: deny
+      schedule: "0 0 * * 0,6"
+      duration: 24h
+      applications:
+        - "*-prod"

@@ -1,0 +1,125 @@
+# =============================================================================
+# Linkerd Control Plane Helm Values
+# =============================================================================
+# Configuration for Linkerd service mesh installation.
+#
+# Installation steps:
+# 1. Install Linkerd CRDs: linkerd install --crds | kubectl apply -f -
+# 2. Install Linkerd: helm install linkerd-control-plane linkerd/linkerd-control-plane -f linkerd-values.yaml
+#
+# Or use the linkerd CLI:
+# linkerd install --crds | kubectl apply -f -
+# linkerd install | kubectl apply -f -
+# =============================================================================
+
+# Identity configuration (mTLS certificates)
+identity:
+  issuer:
+    # Certificate validity period
+    clockSkewAllowance: 20s
+    issuanceLifetime: 24h0m0s
+    # TLS credentials (auto-generated if not provided)
+    # For production, use cert-manager or external CA
+    # scheme: kubernetes.io/tls
+    # tls:
+    #   crtPEM: |
+    #     -----BEGIN CERTIFICATE-----
+    #     ...
+    #   keyPEM: |
+    #     -----BEGIN RSA PRIVATE KEY-----
+    #     ...
+
+# Proxy configuration
+proxy:
+  # Resource limits for sidecar proxies
+  resources:
+    cpu:
+      limit: 200m
+      request: 100m
+    memory:
+      limit: 250Mi
+      request: 50Mi
+
+  # Log level for proxies
+  logLevel: warn,linkerd=info
+
+  # Enable protocol detection
+  enableExternalProfiles: true
+
+  # Inbound/outbound port configuration
+  ports:
+    admin: 4191
+    control: 4190
+    inbound: 4143
+    outbound: 4140
+
+  # Opaque ports (skip protocol detection)
+  opaquePorts: "25,587,3306,4444,5432,6379,9300,11211"
+
+# Controller configuration
+controllerReplicas: 1
+
+# Destination controller
+destinationController:
+  resources:
+    cpu:
+      limit: 250m
+      request: 100m
+    memory:
+      limit: 256Mi
+      request: 128Mi
+
+# High availability configuration
+# For production, set to true
+enableHA: false
+
+# Prometheus integration
+prometheusUrl: "http://prometheus-prometheus.monitoring:9090"
+
+# Network validator (for CNI compatibility)
+cniEnabled: false
+
+# Heartbeat (telemetry)
+disableHeartBeat: true
+
+# Debug container
+debugContainer:
+  image:
+    name: cr.l5d.io/linkerd/debug
+    version: stable-2.14.0
+
+# Control plane trace sampling
+controlPlaneTracing: false
+
+# Pod annotations for workload injection
+# Add this annotation to enable automatic proxy injection:
+# linkerd.io/inject: enabled
+proxyInjector:
+  # Timeout for injection webhook
+  timeoutSeconds: 10
+
+  # Namespaces to ignore
+  namespaceSelector:
+    matchExpressions:
+      - key: config.linkerd.io/admission-webhooks
+        operator: NotIn
+        values:
+          - disabled
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - kube-system
+          - cert-manager
+
+# Policy controller
+policyController:
+  # Default policy (all-unauthenticated, all-authenticated, deny, audit)
+  defaultAllowPolicy: all-unauthenticated
+
+  resources:
+    cpu:
+      limit: 200m
+      request: 100m
+    memory:
+      limit: 256Mi
+      request: 128Mi

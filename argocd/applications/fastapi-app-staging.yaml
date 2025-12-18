@@ -1,0 +1,68 @@
+# =============================================================================
+# Argo CD Application - Staging Environment
+# =============================================================================
+# Deploys the FastAPI application to the staging namespace.
+# Auto-sync enabled but with additional safeguards.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-app-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: fastapi-app
+    app.kubernetes.io/environment: staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: hello-world
+
+  source:
+    repoURL: https://github.com/selvakumarperumal/k8s_hello_world.git
+    targetRevision: develop # Or use a release branch
+    path: helm/fastapi-app
+
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+        - values-ci.yaml
+
+      parameters:
+        - name: ingress.hosts[0].host
+          value: hello-staging.example.com
+
+      releaseName: fastapi-app
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+
+  revisionHistoryLimit: 10
